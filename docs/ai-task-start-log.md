@@ -6876,6 +6876,9 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Ajuste posterior do operador:** no desktop, a faixa passa a reservar explicitamente 60% para
   sinais comerciais, 30% para prioridade/fit e 10% para atendente e pausa/retomada. Em telas
   menores, os blocos continuam empilhados para não truncar informação operacional.
+- **Ajuste posterior 2:** os 40% operacionais deixam de ser duas colunas independentes: viram
+  uma coluna com prioridade/fit na primeira linha e, na segunda, duas células iguais para
+  pausa/retomada e atendente.
 
 ## 2026-10-24 — Recuperação segura do worker automático e observabilidade
 - **Pedido do operador:** corrigir o bloqueio do envio automático causado pela ausência de

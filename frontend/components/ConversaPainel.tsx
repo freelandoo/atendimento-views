@@ -631,10 +631,10 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative border-b px-6 py-3">
-          {/* No desktop, a largura também declara a prioridade de leitura: 60% dos sinais
-              comerciais, 30% da prioridade/fit e 10% para operação (atendente + agente). */}
-          <div className="grid min-w-0 gap-3 pr-8 xl:grid-cols-[minmax(0,6fr)_minmax(0,3fr)_minmax(0,1fr)]">
-            <div className="min-w-[220px] max-w-full xl:col-span-3">
+          {/* No desktop, Sinais comerciais ocupa 60%. Os 40% restantes são uma coluna: prioridade
+              em cima; pausa/retomada e atendente lado a lado embaixo. */}
+          <div className="grid min-w-0 gap-3 pr-8 xl:grid-cols-[minmax(0,6fr)_minmax(0,4fr)]">
+            <div className="min-w-[220px] max-w-full xl:col-span-2">
               <h3 className="font-semibold text-base">
                 <TextoTruncado texto={identidade.titulo} className="max-w-full" />
               </h3>
@@ -653,7 +653,8 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
               <QualificacaoBant qualificacao={aberta.qualificacao_bant} titulo="Sinais comerciais" />
             )}
             {aberta && (
-              <div className="min-w-[280px] flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2">
+              <div className="grid min-w-0 gap-2">
+                <div className="min-w-[280px] rounded-lg border border-line bg-surface-2 px-3 py-2">
                 <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
                   <div className="min-w-[240px] flex-1">
                     <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
@@ -669,11 +670,8 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                   </div>
                 </div>
               </div>
-            )}
-            {/* Pausa é uma ação rápida do topo. O atendente, abaixo, é contexto operacional
-                secundário — nunca se mistura com a prioridade comercial. */}
-            {aberta && (
-              <div className="flex min-w-0 flex-col gap-2 self-center">
+                {/* Operação secundária em duas colunas: ação rápida à esquerda, atendente à direita. */}
+                <div className="grid min-w-0 grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
@@ -687,7 +685,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                 </button>
                 {/* Atendente desta conversa (Etapa 7). "Sem atendente" e' a FILA — o trabalho que
                     precisa ser puxado —, entao ela aparece em destaque, e nao como um traco apagado. */}
-                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-2">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Atendente</span>
                   <span className={
                     atendente.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
@@ -710,23 +708,24 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                   {/* Instancia SEMPRE visivel: e' por ela que a resposta sai (regra unica da Fase 2 —
                       responder sai pela instancia gravada na conversa, nunca por outra). */}
                   {aberta.instancia_nome || aberta.evolution_instance ? (
-                    <span className="inline-flex w-fit items-center rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
-                      Instância:&nbsp;<strong>{aberta.instancia_nome || aberta.evolution_instance}</strong>
+                    <span className="inline-flex max-w-full items-center rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                      Instância:&nbsp;<strong className="truncate">{aberta.instancia_nome || aberta.evolution_instance}</strong>
                     </span>
                   ) : (
                     <span
                       title="Esta conversa não tem instância WhatsApp comprovada. Enquanto não tiver, o envio por aqui é bloqueado — nenhum outro número assume o contato."
-                      className="inline-flex w-fit items-center rounded-md border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-ink-2">
+                      className="inline-flex min-w-0 rounded-md border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-ink-2">
                       Instância não identificada
                     </span>
                   )}
                   {/* Botao sumido sem explicacao e' o que faz o operador achar que a tela quebrou. */}
                   {!acoesDono.assumir && !acoesDono.devolver && acoesDono.motivoSemAssumir && <span className="max-w-[180px] text-[10px] leading-snug text-slate-400">{acoesDono.motivoSemAssumir}</span>}
                 </div>
+                </div>
               </div>
             )}
             {contextoOrigem && contextoOrigem.linhas.length > 0 && (
-              <div className="min-w-[260px] rounded-lg border border-brand/30 bg-blue-50/60 px-3 py-2 xl:col-span-3">
+              <div className="min-w-[260px] rounded-lg border border-brand/30 bg-blue-50/60 px-3 py-2 xl:col-span-2">
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-brand">
                   {contextoOrigem.titulo}
                 </div>
@@ -736,7 +735,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
               </div>
             )}
             {aberta?.ultima_falha_resposta_em && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 xl:col-span-3">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 xl:col-span-2">
                 Falha no envio: {aberta.ultima_falha_resposta_msg || aberta.ultima_falha_resposta_codigo || 'erro desconhecido'}
               </div>
             )}
