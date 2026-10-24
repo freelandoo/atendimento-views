@@ -21,6 +21,7 @@ const {
 const { hashMensagemId, resumoPendencia } = require('./services/webhook-quarentena')
 const { avaliarEscopoAtendimentoInstancia } = require('./services/instancia-atendimento-escopo')
 const { pool: poolDefault } = require('./db')
+const { confirmarDisparosPorWebhook: confirmarDisparosPorWebhookDefault } = require('./services/rodar-leads')
 
 function registerWebhookRoute(app, deps = {}) {
   const {
@@ -59,6 +60,7 @@ function registerWebhookRoute(app, deps = {}) {
     podeGerarRespostaAutomatica,
     eventoSaudeDeWebhook = eventoSaudeDeWebhookDefault,
     registrarEventoSaudeInstancia = registrarEventoSaudeInstanciaDefault,
+    confirmarDisparosPorWebhook = confirmarDisparosPorWebhookDefault,
     registrarAtribuicaoAnuncio = registrarAtribuicaoDefault,
     registrarPendenciaQuarentena = registrarPendenciaDefault,
     pool: poolAtribuicao = poolDefault,
@@ -188,6 +190,24 @@ function registerWebhookRoute(app, deps = {}) {
             state: eventoSaude.state,
             disconnect_code: eventoSaude.disconnect_code,
           }, 'Evento de saude da instancia registrado')
+        }
+        // A confirmação de saída chega da Evolution por MESSAGES.UPDATE. Antes este evento
+        // era usado apenas como saúde da instância e o disparo ficava pendente porque esta
+        // instalação não compartilha a tabela MessageUpdate com o app.
+        if (String(event || '').trim().toUpperCase().replace('.', '_') === 'MESSAGES_UPDATE') {
+          const confirmacoes = await confirmarDisparosPorWebhook(poolAtribuicao, {
+            empresaId: req.empresaId,
+            evolutionInstance: req.evolutionInstance,
+            body: req.body,
+          })
+          webhookLog.info({
+            operation: 'confirmar_envio_webhook',
+            recebidas: confirmacoes.recebidas,
+            enviados: confirmacoes.enviados,
+            falhos: confirmacoes.falhos,
+            ignorados: confirmacoes.ignorados,
+          }, 'Atualização de status da Evolution processada')
+          return
         }
         if (event !== 'messages.upsert') return
     

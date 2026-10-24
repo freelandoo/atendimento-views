@@ -936,9 +936,86 @@ async function marcarConfirmacaoPendente(pool, disparoId, keyId, motivo) {
   )
 }
 
+// A Evolution desta instalação não persiste MessageUpdate no banco compartilhado, mas já
+// envia MESSAGES.UPDATE ao nosso webhook. Aceitamos apenas status terminais e localizamos a
+// saída pela chave retornada por sendText; não há telefone, texto ou payload no log/retorno.
+function extrairAtualizacoesMensagemWebhook(body) {
+  const data = body?.data
+  const candidatos = Array.isArray(data)
+    ? data
+    : [
+        ...(Array.isArray(data?.messages) ? data.messages : []),
+        ...(Array.isArray(data?.updates) ? data.updates : []),
+        data,
+      ]
+  const vistos = new Set()
+  const atualizacoes = []
+  for (const item of candidatos) {
+    if (!item || typeof item !== 'object') continue
+    const key = item.key || item.message?.key || item.update?.key || item.data?.key
+    const messageId = String(key?.id || '').trim()
+    const status = String(
+      item.update?.status || item.status || item.message?.update?.status || item.message?.status || item.data?.status || ''
+    ).trim().toUpperCase()
+    if (!messageId || !status) continue
+    const dedupe = `${messageId}:${status}`
+    if (vistos.has(dedupe)) continue
+    vistos.add(dedupe)
+    atualizacoes.push({ messageId, status })
+  }
+  return atualizacoes
+}
+
+async function confirmarDisparosPorWebhook(pool, { empresaId, evolutionInstance, body }) {
+  const atualizacoes = extrairAtualizacoesMensagemWebhook(body)
+  let enviados = 0
+  let falhos = 0
+  let ignorados = 0
+  for (const { messageId, status } of atualizacoes) {
+    if (status !== 'ERROR' && !STATUS_EVOLUTION_SUCESSO.has(status)) {
+      ignorados++
+      continue
+    }
+    const { rows } = await pool.query(
+      `SELECT id AS disparo_id, prospect_id
+         FROM prospectador.lead_disparos
+        WHERE empresa_id = $1
+          AND evolution_instance = $2
+          AND evolution_message_id = $3
+          AND status IN ('enviando', 'pendente_confirmacao')
+        LIMIT 1`,
+      [empresaId, evolutionInstance, messageId]
+    )
+    const disparo = rows[0]
+    if (!disparo) {
+      ignorados++
+      continue
+    }
+    if (status === 'ERROR') {
+      await marcarDisparoFalhou(pool, disparo.disparo_id, 'message_error')
+      falhos++
+    } else {
+      await finalizarDisparoEnviado(pool, { disparoId: disparo.disparo_id, prospectId: disparo.prospect_id })
+      enviados++
+    }
+  }
+  return { recebidas: atualizacoes.length, enviados, falhos, ignorados }
+}
+
 async function reconciliarConfirmacoesPendentes(pool, limit = 100) {
   const max = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 1000)
-  const tabelaMessageUpdate = await resolverTabelaMessageUpdate(pool)
+  let tabelaMessageUpdate
+  try {
+    tabelaMessageUpdate = await resolverTabelaMessageUpdate(pool)
+  } catch (err) {
+    // Nesta topologia o status chega pelo webhook MESSAGES.UPDATE (mesma chave do sendText),
+    // então não há tabela local a varrer. O handler resolve os pendentes assim que recebe
+    // DELIVERY_ACK/READ/PLAYED ou ERROR.
+    if (err?.code === 'evolution_message_update_missing') {
+      return { verificados: 0, enviados: 0, falhos: 0, fonte: 'webhook' }
+    }
+    throw err
+  }
   await pool.query(
     `UPDATE prospectador.lead_disparos
         SET status = 'pendente_confirmacao', erro = 'confirmacao_pendente:worker_interrompido'
@@ -1158,6 +1235,8 @@ module.exports = {
   afirmarEnvioNaoFalhouNaEvolution,
   enviarLoteEmBackground,
   reconciliarConfirmacoesPendentes,
+  extrairAtualizacoesMensagemWebhook,
+  confirmarDisparosPorWebhook,
   resolverTabelaMessageUpdate,
   finalizarDisparoEnviado,
   renderSaudacao,

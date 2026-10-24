@@ -161,6 +161,32 @@ test('webhook registra CONNECTION_UPDATE antes de ignorar eventos sem mensagem',
   assert.equal(registrados[0].evolution_instance, 'inst-main')
 })
 
+test('webhook MESSAGES.UPDATE confirma disparo e não cai no fluxo de conversa', async () => {
+  let handler
+  const app = { post: (_path, cb) => { handler = cb } }
+  const log = { child: () => log, info: () => {}, warn: () => {}, error: () => {} }
+  const confirmacoes = []
+  registerWebhookRoute(app, {
+    webhookAutorizado: () => true,
+    gerarRequestIdAnthropic: () => 'rid',
+    loggerForWebhook: () => log,
+    serializeError: (err) => ({ message: err.message }),
+    eventoSaudeDeWebhook: () => null,
+    registrarEventoSaudeInstancia: async () => {},
+    confirmarDisparosPorWebhook: async (_pool, entrada) => {
+      confirmacoes.push(entrada)
+      return { recebidas: 1, enviados: 1, falhos: 0, ignorados: 0 }
+    },
+  })
+  await handler(
+    { headers: {}, body: { event: 'messages.update', data: { key: { id: 'msg-1' }, update: { status: 'DELIVERY_ACK' } } }, empresaId: 'e1', evolutionInstance: 'inst-main' },
+    { status: () => ({ json: () => {} }), json: () => {} }
+  )
+  assert.equal(confirmacoes.length, 1)
+  assert.equal(confirmacoes[0].empresaId, 'e1')
+  assert.equal(confirmacoes[0].evolutionInstance, 'inst-main')
+})
+
 test('obterResumoConexao reutiliza cache e agrupa requisicoes simultaneas', async () => {
   const empresaId = 'empresa-cache'
   invalidarResumoConexao(empresaId)

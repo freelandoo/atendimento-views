@@ -5,6 +5,7 @@ const {
   renderSaudacao, rodarLeads, gerarMensagensSemi, gerarPendentesSemi, dispararGerados, estadoEnvioInstancia,
   aguardarStatusEnvioEvolution, afirmarEnvioNaoFalhouNaEvolution, enviarLoteEmBackground,
   reconciliarConfirmacoesPendentes, resolverTabelaMessageUpdate,
+  extrairAtualizacoesMensagemWebhook, confirmarDisparosPorWebhook,
   separarElegiveis, exigirInstanciaConectada, carregarInstancia, STATUS_RODAVEL,
   LIMITE_FALHAS_IA_CONSECUTIVAS,
 } = require('../src/services/rodar-leads')
@@ -479,6 +480,33 @@ test('MessageUpdate falha de forma explícita quando nenhum schema existe', asyn
     () => resolverTabelaMessageUpdate(pool),
     (err) => err.code === 'evolution_message_update_missing'
   )
+})
+
+test('MESSAGES.UPDATE extrai chave e status terminal sem depender da tabela MessageUpdate', () => {
+  const atualizacoes = extrairAtualizacoesMensagemWebhook({
+    event: 'messages.update',
+    data: { key: { id: 'msg-webhook-1' }, update: { status: 'DELIVERY_ACK' } },
+  })
+  assert.deepEqual(atualizacoes, [{ messageId: 'msg-webhook-1', status: 'DELIVERY_ACK' }])
+})
+
+test('confirmação por webhook fecha somente o disparo da empresa e instância corretas', async () => {
+  const sqls = []
+  const pool = makePool([
+    ['FROM prospectador.lead_disparos', (params) => {
+      sqls.push(params)
+      return { rows: [{ disparo_id: 'd-1', prospect_id: 'p-1' }] }
+    }],
+    ['UPDATE prospectador.prospects', () => ({ rows: [] })],
+    ["SET status = 'enviado'", () => ({ rows: [] })],
+  ])
+  const resultado = await confirmarDisparosPorWebhook(pool, {
+    empresaId: 'empresa-1',
+    evolutionInstance: 'inst-1',
+    body: { data: { key: { id: 'msg-1' }, update: { status: 'READ' } } },
+  })
+  assert.deepEqual(resultado, { recebidas: 1, enviados: 1, falhos: 0, ignorados: 0 })
+  assert.deepEqual(sqls[0], ['empresa-1', 'inst-1', 'msg-1'])
 })
 
 test('aguardarStatusEnvioEvolution sem update retorna PENDING sem lançar', async () => {
