@@ -6774,3 +6774,39 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   (2026-10-22/23). **Não validado ao vivo:** sem banco local do projeto (a `DATABASE_URL` aponta
   para `postgres.railway.internal`, inalcançável fora do Railway), então não houve passe de
   Playwright no modal nem teste de ponta a ponta em produção.
+
+## 2026-10-24 — Instâncias conectadas e mensagens não saindo (diagnóstico + correção)
+- **Pedido do operador:** investigar todo o fluxo de envio (frontend → API → validação → fila →
+  worker → instância → Evolution → status), achar o ponto exato em que a corrente arrebenta,
+  corrigir a causa raiz e comprovar com testes. Proibido presumir que a instância está funcional
+  porque aparece como conectada; proibido entregar só relatório teórico.
+- **Fase 0:** registro aqui. Git: branch `master`; árvore com alterações de OUTRAS tarefas
+  (`AGENTS.md`, `docs/propostas/*`, `.playwright-mcp/`, `artifacts/`) — **a preservar**.
+- **Fase 1 (evidências):** suítes do caminho de envio passavam (118/118), ou seja, nenhum defeito
+  alcançável pelos testes existentes. A lacuna era de COBERTURA: nada exercitava
+  `whatsapp.js#enviarMensagem` contra HTTP. Harness E2E com Evolution FALSA (servidor local) e
+  banco stubbado por `require.cache` — 10 cenários. Leitura do banco de PRODUÇÃO foi **bloqueada**
+  pelo classificador de permissões e o MCP do Railway está **sem autorização**: a confirmação no
+  ambiente real segue **PENDENTE**.
+- **Causa raiz 1 (comprovada no harness, casos 3 × 3b):** `exigirInstanciaConectada`
+  (`services/rodar-leads.js`) recusava o disparo com `connected !== true`, tratando
+  `connected: null` ("não deu para saber": `connectionState` em 5xx, acima do timeout de 5s da
+  sonda, ou Evolution reiniciando) como desconexão. Era o **único ponto do repositório** que
+  recusava ação assim — `whatsapp.js:476` e `conversa-manual.js:95` sempre bloquearam só com
+  `=== false`. Alcance: Manual (`rodarLeads`), Semi (`dispararGerados`) e, por
+  `erroDaInstancia`, **todo o pool do Automático** — com as instâncias conectadas e a resposta
+  conversacional saindo normalmente, porque o chokepoint tolera o desconhecido. Sem decisão
+  registrada para o bloqueio (veio no commit `731a320`, "robustez de disparo/conexao").
+- **Causa raiz 2 (comprovada por leitura do SQL):** `reconciliarConfirmacoesPendentes` movia
+  `'enviando'` > 5 min para `'pendente_confirmacao'` **inclusive sem `evolution_message_id`**, e a
+  consulta de confirmação exige `evolution_message_id IS NOT NULL`. A linha ficava
+  `pendente_confirmacao` **eterna** e `whereCandidatosAutomatico` exclui esse status do recorte →
+  o lead saía da fila do Automático **para sempre, em silêncio**.
+- **Correções:** só desconexão PROVADA barra o disparo (indeterminado segue e fica no log, com a
+  autoridade no envio, que já classifica `instance_disconnected` do erro real); disparo sem id de
+  mensagem é liberado como `falhou` após 60 min (`erro = 'sem_confirmacao:sem_id_mensagem'`),
+  devolvendo o lead à fila. Risco de reabordagem declarado e aceito — é o mesmo que o caminho de
+  timeout já assume.
+- **Validação:** `npm test` **3396/3396** (4 testes novos, incluindo guarda de regressão da causa
+  raiz). Harness E2E reconfirmado: caso 2 (state=close) continua bloqueando, caso 3b passa.
+  **Nenhuma migration, env, rota ou capacidade nova.**

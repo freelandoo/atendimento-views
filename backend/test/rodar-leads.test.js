@@ -413,6 +413,25 @@ test('exigirInstanciaConectada bloqueia envio antes da reserva', async () => {
   )
 })
 
+// GUARDA DE REGRESSAO (causa raiz do "instancias conectadas e nada sai"): so a desconexao
+// PROVADA barra o disparo. `connected: null` e' "nao deu para saber" — `connectionState` fora
+// do ar, 5xx ou acima do timeout de 5s da sonda — e barrar nisso travava Manual, Semi e todo o
+// pool do Automatico (via `erroDaInstancia`) com as instancias conectadas e enviando. O
+// chokepoint (`whatsapp.js`) sempre tolerou o desconhecido; este era o unico ponto do
+// repositorio que recusava acao com `connected !== true`.
+test('exigirInstanciaConectada NAO bloqueia quando a conexao e indeterminada', async () => {
+  const status = await exigirInstanciaConectada(
+    instanciaAtiva,
+    async () => ({ ok: true, connected: null, state: 'unknown' })
+  )
+  assert.equal(status.connected, null)
+})
+
+test('exigirInstanciaConectada segue quando a sonda falha sem veredito', async () => {
+  const status = await exigirInstanciaConectada(instanciaAtiva, async () => ({}))
+  assert.ok(status)
+})
+
 test('aguardarStatusEnvioEvolution lê ERROR do MessageUpdate pelo key id', async () => {
   const pool = makePool([
     ['FROM public."MessageUpdate"', (params) => {
@@ -537,6 +556,7 @@ test('reconciliarConfirmacoesPendentes so avanca o funil com confirmacao termina
   let disparoEnviado = false
   const pool = makePool([
     ["status = 'enviando' AND criado_em", () => ({ rows: [] })],
+    ['evolution_message_id IS NULL', () => ({ rows: [], rowCount: 0 })],
     ['LEFT JOIN LATERAL', () => ({ rows: [{
       disparo_id: 'd1', prospect_id: 'p1', evolution_message_id: 'msg-4',
       evolution_status: 'DELIVERY_ACK',
@@ -548,6 +568,46 @@ test('reconciliarConfirmacoesPendentes so avanca o funil com confirmacao termina
   assert.equal(out.enviados, 1)
   assert.equal(prospectAtualizado, true)
   assert.equal(disparoEnviado, true)
+})
+
+// Sem id de mensagem nao existe o que confirmar: a consulta de confirmacao exige
+// `evolution_message_id IS NOT NULL`, entao a linha ficava 'pendente_confirmacao' ETERNA e o
+// lead saia do recorte do Automatico (`whereCandidatosAutomatico`) para sempre, em silencio.
+test('reconciliarConfirmacoesPendentes libera disparo sem id de mensagem', async () => {
+  let liberados = null
+  const pool = makePool([
+    ["status = 'enviando' AND criado_em", () => ({ rows: [], rowCount: 0 })],
+    ['evolution_message_id IS NULL', (_params, sql) => {
+      assert.ok(sql.includes("SET status = 'falhou'"))
+      assert.ok(sql.includes("erro = 'sem_confirmacao:sem_id_mensagem'"))
+      assert.ok(sql.includes('60 minutes'), 'janela folgada: o id vem da resposta do envio')
+      liberados = 2
+      return { rows: [], rowCount: 2 }
+    }],
+    ['LEFT JOIN LATERAL', () => ({ rows: [] })],
+  ])
+  const out = await reconciliarConfirmacoesPendentes(pool)
+  assert.equal(liberados, 2)
+  assert.equal(out.verificados, 0)
+})
+
+// A linha que AINDA pode ser confirmada (tem id) nao e' liberada por este caminho — seria
+// desistir de um envio que o provedor ainda vai confirmar.
+test('reconciliarConfirmacoesPendentes nao libera quem tem id de mensagem', async () => {
+  const pool = makePool([
+    ["status = 'enviando' AND criado_em", () => ({ rows: [], rowCount: 0 })],
+    ['evolution_message_id IS NULL', (_params, sql) => {
+      assert.ok(sql.includes('evolution_message_id IS NULL'), 'o recorte exige id NULO')
+      return { rows: [], rowCount: 0 }
+    }],
+    ['LEFT JOIN LATERAL', () => ({ rows: [{
+      disparo_id: 'd9', prospect_id: 'p9', evolution_message_id: 'msg-9', evolution_status: null,
+    }] })],
+  ])
+  const out = await reconciliarConfirmacoesPendentes(pool)
+  assert.equal(out.verificados, 1)
+  assert.equal(out.enviados, 0)
+  assert.equal(out.falhos, 0)
 })
 
 test('enviarLoteEmBackground revalida compliance imediatamente antes da Evolution', async () => {

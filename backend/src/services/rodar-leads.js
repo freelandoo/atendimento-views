@@ -75,15 +75,40 @@ function dedupeIds(prospectIds) {
   return Array.from(new Set((prospectIds || []).map((x) => String(x || '').trim()).filter(Boolean)))
 }
 
+/**
+ * Só uma desconexão **PROVADA** barra o disparo. `connected === null` significa "não deu para
+ * saber" — `verificarStatusInstanciaEvolution` devolve isso quando o `connectionState` responde
+ * 5xx, estoura o timeout dela (5s, FIXO e mais curto que o do próprio envio) ou a Evolution
+ * está reiniciando. Tratar esse "não sei" como "desconectada" bloqueava o Banco de Leads
+ * inteiro (Manual, Semi e, pelo `erroDaInstancia`, todo o pool do Automático) com as instâncias
+ * conectadas e respondendo — enquanto a resposta conversacional seguia saindo, porque o
+ * chokepoint (`whatsapp.js`) sempre tolerou o desconhecido. Este era o ÚNICO ponto do
+ * repositório que recusava ação com `connected !== true`.
+ *
+ * A autoridade sobre a conexão é o ENVIO, não a sonda: `enviarMensagem` classifica
+ * `instance_disconnected` a partir do erro real e `assertEvolutionEnvioOk` recusa o HTTP 200
+ * com `success:false`/`status:ERROR`. Na dúvida, deixa tentar e registra.
+ */
 async function exigirInstanciaConectada(instancia, verificarStatus = verificarStatusInstanciaEvolution) {
   const status = await verificarStatus(instancia.evolution_instance)
-  if (status?.connected === true) return status
-  const e = new Error(status?.connected === false
-    ? 'A instância WhatsApp está desconectada. Reconecte-a antes de enviar.'
-    : 'Não foi possível confirmar a conexão da instância. Verifique o WhatsApp antes de enviar.')
-  e.statusCode = 409
-  e.code = 'instance_disconnected'
-  throw e
+  if (status?.connected === false) {
+    const e = new Error('A instância WhatsApp está desconectada. Reconecte-a antes de enviar.')
+    e.statusCode = 409
+    e.code = 'instance_disconnected'
+    throw e
+  }
+  if (status?.connected !== true) {
+    logger.warn(
+      {
+        operation: 'exigir_instancia_conectada',
+        instancia: instancia.evolution_instance,
+        state: status?.state || 'unknown',
+        motivo: status?.motivo || null,
+      },
+      '[rodar-leads] conexao da instancia nao confirmada; seguindo e deixando o envio decidir'
+    )
+  }
+  return status
 }
 
 async function comTransacao(pool, fn) {
@@ -919,6 +944,33 @@ async function reconciliarConfirmacoesPendentes(pool, limit = 100) {
         SET status = 'pendente_confirmacao', erro = 'confirmacao_pendente:worker_interrompido'
       WHERE status = 'enviando' AND criado_em < NOW() - INTERVAL '5 minutes'`
   )
+  // SEM ID DE MENSAGEM NAO HA O QUE CONFIRMAR. A consulta abaixo exige
+  // `evolution_message_id IS NOT NULL` (e precisa exigir: e' a chave do LATERAL no
+  // message_update). Entao a linha que chegou a 'enviando' e morreu antes de obter a chave
+  // — processo reiniciado no meio do lote, redeploy, OOM — virava 'pendente_confirmacao'
+  // eterna: nunca mais era seleccionada por ninguem, e `whereCandidatosAutomatico`
+  // (banco-leads-auto.js) exclui 'pendente_confirmacao' do recorte, entao aquele lead saia
+  // da fila do Automatico PARA SEMPRE, em silencio.
+  // Resolver como 'falhou' devolve o lead a fila. A janela de 60 min e' folgada de proposito:
+  // o id vem da RESPOSTA do envio, entao sem ele o round-trip nao fechou.
+  // RISCO DECLARADO E ACEITO: a Evolution pode ter entregue a mensagem e a resposta ter sido
+  // perdida (timeout), e ai o lead pode ser abordado de novo. E' exatamente o mesmo risco que
+  // o caminho de timeout do envio ja assume hoje (`marcarDisparoFalhou` no catch de
+  // `enviarLoteEmBackground`) — preferir o lead perdido para sempre seria pior. O `erro`
+  // distingue este caso de uma falha do provedor, para ser auditavel.
+  const { rowCount: semConfirmacao } = await pool.query(
+    `UPDATE prospectador.lead_disparos
+        SET status = 'falhou', erro = 'sem_confirmacao:sem_id_mensagem'
+      WHERE status = 'pendente_confirmacao'
+        AND evolution_message_id IS NULL
+        AND criado_em < NOW() - INTERVAL '60 minutes'`
+  )
+  if (semConfirmacao > 0) {
+    logger.warn(
+      { operation: 'reconciliar_confirmacoes', liberados: semConfirmacao },
+      '[rodar-leads] disparos sem id de mensagem liberados; leads voltam para a fila'
+    )
+  }
   const { rows } = await pool.query(
     `SELECT d.id AS disparo_id, d.prospect_id, d.evolution_message_id,
             u.status AS evolution_status
