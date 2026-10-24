@@ -6856,3 +6856,20 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   busca o snapshot sob demanda pelo lead, sempre com `empresa_id`. A nova UI traduz o veredito
   sem calcular qualificação no cliente. Foi documentada a separação BANT x ICP e a procedência
   futura de dores (declaração do lead, observação pública ou hipótese de nicho).
+
+## 2026-10-24 — Central de Mensagens: hierarquia comercial e configurações da conversa
+
+- **Pedido do operador:** reorganizar o painel da conversa para mostrar, nesta ordem, sinais
+  comerciais, prioridade comercial/fit e atendente; manter um controle rápido de pausar ou
+  retomar o agente no topo; mover modo da conversa e os demais controles para uma quarta aba de
+  configurações.
+- **Fase 0:** início registrado. Git: branch `master`; alterações anteriores em `AGENTS.md`,
+  `docs/propostas/*`, `.playwright-mcp/` e `artifacts/` serão preservadas. Superfície: somente
+  `frontend`, no componente compartilhado `ConversaPainel`; sem mudança de API, banco,
+  permissões ou regra comercial.
+- **Implementação e validação:** BANT passou ao primeiro bloco do painel como “Sinais
+  comerciais”; prioridade/fit ficou em seguida; atendente foi compactado; pausa/retomada virou
+  ação textual rápida no topo; modo da conversa foi para a quarta aba “Configurações”.
+  `cd frontend && npx tsc --noEmit` e `node --test lib/*.test.js` passaram (902 testes). A rota
+  compilou localmente; inspeção do painel autenticado por Playwright ficou pendente porque a
+  sessão redirecionou ao login, sem usar credenciais.

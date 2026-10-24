@@ -17,9 +17,11 @@ const TOM = {
 }
 type TomBant = keyof typeof TOM
 
-export default function QualificacaoBant({ qualificacao, compacto = false }: {
+export default function QualificacaoBant({ qualificacao, compacto = false, titulo = 'Sinais BANT' }: {
   qualificacao?: QualificacaoBantDados
   compacto?: boolean
+  /** A Central usa "Sinais comerciais"; em outras superfícies o vocabulário BANT continua explícito. */
+  titulo?: string
 }) {
   const leitura = traduzirQualificacaoBant(qualificacao)
   const resumo: { texto: string; tom: TomBant } = leitura.prontoParaAssuncao
@@ -32,7 +34,7 @@ export default function QualificacaoBant({ qualificacao, compacto = false }: {
     <section aria-label="Sinais BANT" className="rounded-lg border border-line bg-surface px-4 py-3 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Sinais BANT</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{titulo}</p>
           <p className="mt-1 text-sm font-semibold text-ink">Qualificação da conversa</p>
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${TOM[resumo.tom]}`}>

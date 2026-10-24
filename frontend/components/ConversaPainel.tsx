@@ -162,6 +162,15 @@ type FeedbackResponse = {
   contexto_versao_id: string | null
 }
 
+type AbaPainel = 'chat' | 'interesses' | 'historico' | 'configuracoes'
+
+const ABAS_PAINEL: { id: AbaPainel; rotulo: string }[] = [
+  { id: 'chat', rotulo: 'Conversa' },
+  { id: 'interesses', rotulo: 'Interesses' },
+  { id: 'historico', rotulo: 'Histórico' },
+  { id: 'configuracoes', rotulo: 'Configurações' },
+]
+
 // Uma linha do histórico de DONO DO LEAD (Banco de Leads / equipe comercial) — diferente do
 // histórico de atendente da conversa. Mesmo vocabulário de ação (`ACOES`, migration 072/074),
 // por isso a tradução reusa `descreverMudancaDeAtendente` (lib/conversa-operacao.js) em vez de
@@ -301,7 +310,13 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const [reenviando, setReenviando] = useState(false)
   const [alterandoPausa, setAlterandoPausa] = useState(false)
   const [alterandoModo, setAlterandoModo] = useState(false)
-  const [abaModal, setAbaModal] = useState<'chat' | 'interesses' | 'historico'>('chat')
+  const [abaModal, setAbaModal] = useState<AbaPainel>('chat')
+  const abasRefs = useRef<Record<AbaPainel, HTMLButtonElement | null>>({
+    chat: null,
+    interesses: null,
+    historico: null,
+    configuracoes: null,
+  })
   const [feedbacksMensagem, setFeedbacksMensagem] = useState<Record<number, FeedbackState>>({})
   const [feedbackNegativo, setFeedbackNegativo] = useState<{ index: number; observacao: string; tags: string[] } | null>(null)
 
@@ -366,6 +381,19 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
       })
       .finally(() => { if (meu === requisicao.current) setCarregandoHistorico(false) })
   }, [abaModal, historicoLead, carregandoHistorico, empresaId, numero])
+
+  function navegarAbas(e: React.KeyboardEvent<HTMLButtonElement>, indice: number) {
+    let proximo = indice
+    if (e.key === 'ArrowRight') proximo = (indice + 1) % ABAS_PAINEL.length
+    else if (e.key === 'ArrowLeft') proximo = (indice - 1 + ABAS_PAINEL.length) % ABAS_PAINEL.length
+    else if (e.key === 'Home') proximo = 0
+    else if (e.key === 'End') proximo = ABAS_PAINEL.length - 1
+    else return
+    e.preventDefault()
+    const alvo = ABAS_PAINEL[proximo]
+    setAbaModal(alvo.id)
+    abasRefs.current[alvo.id]?.focus()
+  }
 
   // Escape fecha o painel, como nos demais modais da aplicacao.
   useEffect(() => {
@@ -602,9 +630,9 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
         className="bg-white rounded-2xl shadow-xl w-full max-w-[min(72rem,94vw)] max-h-[min(56rem,92dvh)] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-6 py-2.5 border-b flex justify-between items-start gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2">
-            <div className="min-w-[220px] max-w-full">
+        <div className="relative border-b px-6 py-3">
+          <div className="grid min-w-0 gap-3 pr-8 xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,1fr)_minmax(13rem,auto)]">
+            <div className="min-w-[220px] max-w-full xl:col-span-3">
               <h3 className="font-semibold text-base">
                 <TextoTruncado texto={identidade.titulo} className="max-w-full" />
               </h3>
@@ -620,12 +648,15 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
               )}
             </div>
             {aberta && (
-              <div className="min-w-[380px] flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <QualificacaoBant qualificacao={aberta.qualificacao_bant} titulo="Sinais comerciais" />
+            )}
+            {aberta && (
+              <div className="min-w-[280px] flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2">
                 <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
-                  <div className="min-w-[200px] flex-1">
+                  <div className="min-w-[240px] flex-1">
                     <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <InteresseBadge c={aberta} compact />
+                      <InteresseBadge c={aberta} />
                       {scoreValue(aberta.score_lead) != null && (
                         <span className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600">
                           Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
@@ -634,97 +665,46 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                       <TempBadge t={aberta.temperatura_lead} />
                     </div>
                   </div>
-                  {/* "Modo desta conversa" dividindo espaco com Prioridade comercial, no mesmo
-                      cartao — decisao de produto (2026-08-14): o controle de pausa do agente
-                      passou a viver ao lado deste bloco (ver "Agente" abaixo), entao os dois
-                      ficaram fisicamente proximos de proposito. `modo_ia` (preferencia
-                      persistente desta conversa) e `agente_pausado` (pausa efemera, escrita
-                      pelo proprio atendimento) continuam sendo DUAS coisas diferentes — a
-                      proximidade visual e so isso, proximidade; o titulo/tooltip de cada
-                      controle segue explicito sobre o que cada um faz, e o aviso no
-                      compositor (`avisoDoCompositor`) e quem fala da combinacao dos dois. */}
-                  <div className="min-w-[220px] shrink-0 border-slate-200 sm:border-l sm:pl-4">
-                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Modo desta conversa
-                    </div>
-                    <AlternadorModoIa
-                      opcoes={opcoesDePreferencia()}
-                      selecionado={normalizarPreferencia(aberta.modo_ia)}
-                      onMudar={(id) => alterarModoIa(id as PreferenciaModoIa)}
-                      ocupado={alterandoModo}
-                      bloqueio={bloqueioIa}
-                      compacto
-                      // Mesmo mecanismo do controle GLOBAL (`dashboard/conversas/page.tsx`): o
-                      // parágrafo fixo com o modo efetivo e a origem saiu da tela e virou o texto
-                      // do balão — a opção marcada já mostra a escolha, e o balão diz o que está
-                      // valendo agora. A pausa tem aviso próprio no compositor logo abaixo
-                      // (`avisoDoCompositor`); repeti-la aqui duplicaria o mesmo aviso.
-                      ajuda={explicarOrigem({
-                        origem: aberta.modo_ia_origem,
-                        modoEfetivo: aberta.modo_ia_efetivo,
-                        modoPadrao: aberta.modo_ia_padrao,
-                      })}
-                      ariaLabel={rotuloAcessivel({
-                        modoEfetivo: aberta.modo_ia_efetivo,
-                        origem: aberta.modo_ia_origem,
-                        modoPadrao: aberta.modo_ia_padrao,
-                      })}
-                    />
-                  </div>
                 </div>
               </div>
             )}
-            {/* Agente ativo em cima, Atendente logo ABAIXO (pedido do operador): os dois falam de
-                "quem/o que responde", entao ficam empilhados no mesmo bloco. Com 3 instancias no
-                pull, o Atendente carrega SEMPRE a instancia — e' ela que diz por qual numero a
-                conversa e' respondida. */}
+            {/* Pausa é uma ação rápida do topo. O atendente, abaixo, é contexto operacional
+                secundário — nunca se mistura com a prioridade comercial. */}
             {aberta && (
-              <div className="flex shrink-0 flex-col gap-2 self-center">
-                <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <span className="text-xs text-slate-400">
-                    {alterandoPausa ? 'Atualizando…' : aberta.agente_pausado ? 'Agente pausado' : 'Agente ativo'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
-                    disabled={alterandoPausa || !podeGerenciarIa}
-                    title={bloqueioIa || (aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente')}
-                    aria-label={`${aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}${bloqueioIa ? `. Indisponível: ${bloqueioIa}` : ''}`}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {alterandoPausa ? (
-                      <Spinner size={12} />
-                    ) : aberta.agente_pausado ? (
-                      <IconPlay className="h-3.5 w-3.5" />
-                    ) : (
-                      <IconPause className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </div>
+              <div className="flex min-w-[210px] shrink-0 flex-col gap-2 self-center">
+                <button
+                  type="button"
+                  onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
+                  disabled={alterandoPausa || !podeGerenciarIa}
+                  title={bloqueioIa || (aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente')}
+                  aria-label={`${aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}${bloqueioIa ? `. Indisponível: ${bloqueioIa}` : ''}`}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-ink-2 transition hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {alterandoPausa ? <Spinner size={12} /> : aberta.agente_pausado ? <IconPlay className="h-3.5 w-3.5" /> : <IconPause className="h-3.5 w-3.5" />}
+                  {alterandoPausa ? 'Atualizando…' : aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
+                </button>
                 {/* Atendente desta conversa (Etapa 7). "Sem atendente" e' a FILA — o trabalho que
                     precisa ser puxado —, entao ela aparece em destaque, e nao como um traco apagado. */}
-                <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Atendente</span>
-                  <div className="flex items-center gap-2">
-                    <span className={
-                      atendente.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
-                        : atendente.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700'
-                          : 'text-xs text-slate-600'
-                    }>{atendente.rotulo}</span>
-                    {acoesDono.assumir && (
-                      <button type="button" onClick={assumirConversa} disabled={alterandoResponsavel}
-                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
-                        {alterandoResponsavel ? 'Assumindo…' : 'Assumir'}
-                      </button>
-                    )}
-                    {acoesDono.devolver && (
-                      <button type="button" onClick={devolverConversa} disabled={alterandoResponsavel}
-                        title="Volta para a fila de conversas sem atendente"
-                        className="rounded-lg border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">
-                        {alterandoResponsavel ? 'Devolvendo…' : 'Devolver'}
-                      </button>
-                    )}
-                  </div>
+                  <span className={
+                    atendente.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
+                      : atendente.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700'
+                        : 'text-xs text-slate-600'
+                  }>{atendente.rotulo}</span>
+                  {acoesDono.assumir && (
+                    <button type="button" onClick={assumirConversa} disabled={alterandoResponsavel}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
+                      {alterandoResponsavel ? 'Assumindo…' : 'Assumir'}
+                    </button>
+                  )}
+                  {acoesDono.devolver && (
+                    <button type="button" onClick={devolverConversa} disabled={alterandoResponsavel}
+                      title="Volta para a fila de conversas sem atendente"
+                      className="rounded-lg border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">
+                      {alterandoResponsavel ? 'Devolvendo…' : 'Devolver'}
+                    </button>
+                  )}
                   {/* Instancia SEMPRE visivel: e' por ela que a resposta sai (regra unica da Fase 2 —
                       responder sai pela instancia gravada na conversa, nunca por outra). */}
                   {aberta.instancia_nome || aberta.evolution_instance ? (
@@ -739,14 +719,12 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                     </span>
                   )}
                   {/* Botao sumido sem explicacao e' o que faz o operador achar que a tela quebrou. */}
-                  {!acoesDono.assumir && !acoesDono.devolver && acoesDono.motivoSemAssumir && (
-                    <span className="max-w-[180px] text-[10px] leading-snug text-slate-400">{acoesDono.motivoSemAssumir}</span>
-                  )}
+                  {!acoesDono.assumir && !acoesDono.devolver && acoesDono.motivoSemAssumir && <span className="max-w-[180px] text-[10px] leading-snug text-slate-400">{acoesDono.motivoSemAssumir}</span>}
                 </div>
               </div>
             )}
             {contextoOrigem && contextoOrigem.linhas.length > 0 && (
-              <div className="min-w-[260px] rounded-lg border border-brand/30 bg-blue-50/60 px-3 py-2">
+              <div className="min-w-[260px] rounded-lg border border-brand/30 bg-blue-50/60 px-3 py-2 xl:col-span-3">
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-brand">
                   {contextoOrigem.titulo}
                 </div>
@@ -756,14 +734,14 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
               </div>
             )}
             {aberta?.ultima_falha_resposta_em && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 xl:col-span-3">
                 Falha no envio: {aberta.ultima_falha_resposta_msg || aberta.ultima_falha_resposta_codigo || 'erro desconhecido'}
               </div>
             )}
           </div>
           <button
             onClick={onFechar}
-            className="text-gray-400 hover:text-gray-700 text-xl leading-none px-2"
+            className="absolute right-4 top-3 px-2 text-xl leading-none text-gray-400 hover:text-gray-700"
             aria-label="Fechar"
           >
             ×
@@ -793,33 +771,29 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
         ) : (
           <>
             <div className="border-b bg-white px-6 py-2">
-              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-                <button
-                  type="button"
-                  onClick={() => setAbaModal('chat')}
-                  className={`rounded-md px-4 py-2 text-sm font-medium transition ${abaModal === 'chat' ? 'bg-white text-brand shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  Conversa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAbaModal('interesses')}
-                  className={`rounded-md px-4 py-2 text-sm font-medium transition ${abaModal === 'interesses' ? 'bg-white text-brand shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  Interesses
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAbaModal('historico')}
-                  className={`rounded-md px-4 py-2 text-sm font-medium transition ${abaModal === 'historico' ? 'bg-white text-brand shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  Histórico
-                </button>
+              <div role="tablist" aria-label="Seções da conversa" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+                {ABAS_PAINEL.map((aba, indice) => (
+                  <button
+                    key={aba.id}
+                    ref={(el) => { abasRefs.current[aba.id] = el }}
+                    id={`conversa-aba-${aba.id}`}
+                    role="tab"
+                    type="button"
+                    aria-selected={abaModal === aba.id}
+                    aria-controls={`conversa-painel-${aba.id}`}
+                    tabIndex={abaModal === aba.id ? 0 : -1}
+                    onClick={() => setAbaModal(aba.id)}
+                    onKeyDown={(e) => navegarAbas(e, indice)}
+                    className={`rounded-md px-4 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${abaModal === aba.id ? 'bg-white text-brand shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    {aba.rotulo}
+                  </button>
+                ))}
               </div>
             </div>
 
             {abaModal === 'historico' && (
-              <div className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6">
+              <div role="tabpanel" id="conversa-painel-historico" aria-labelledby="conversa-aba-historico" tabIndex={0} className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6 focus:outline-none">
                 <div className="mb-3">
                   <h4 className="text-sm font-semibold text-slate-900">Histórico do lead</h4>
                   <p className="mt-1 text-xs text-gray-500">
@@ -861,7 +835,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
             )}
 
             {abaModal === 'interesses' && (
-              <div className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6">
+              <div role="tabpanel" id="conversa-painel-interesses" aria-labelledby="conversa-aba-interesses" tabIndex={0} className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6 focus:outline-none">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="text-sm font-semibold text-slate-900">Interesses detalhados</h4>
@@ -897,10 +871,46 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
               </div>
             )}
 
+            {abaModal === 'configuracoes' && (
+              <div
+                role="tabpanel"
+                id="conversa-painel-configuracoes"
+                aria-labelledby="conversa-aba-configuracoes"
+                tabIndex={0}
+                className="flex-1 overflow-y-auto bg-surface-2 px-7 py-6 focus:outline-none"
+              >
+                <section className="max-w-2xl rounded-lg border border-line bg-surface p-5 shadow-card">
+                  <h4 className="text-sm font-semibold text-ink">Configurações da resposta</h4>
+                  <p className="mt-1 text-xs leading-relaxed text-ink-3">
+                    Define como a IA atua nas próximas mensagens deste lead. A pausa rápida do agente permanece no topo da conversa.
+                  </p>
+                  <div className="mt-4 border-t border-line pt-4">
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Modo desta conversa</div>
+                    <AlternadorModoIa
+                      opcoes={opcoesDePreferencia()}
+                      selecionado={normalizarPreferencia(aberta.modo_ia)}
+                      onMudar={(id) => alterarModoIa(id as PreferenciaModoIa)}
+                      ocupado={alterandoModo}
+                      bloqueio={bloqueioIa}
+                      ajuda={explicarOrigem({
+                        origem: aberta.modo_ia_origem,
+                        modoEfetivo: aberta.modo_ia_efetivo,
+                        modoPadrao: aberta.modo_ia_padrao,
+                      })}
+                      ariaLabel={rotuloAcessivel({
+                        modoEfetivo: aberta.modo_ia_efetivo,
+                        origem: aberta.modo_ia_origem,
+                        modoPadrao: aberta.modo_ia_padrao,
+                      })}
+                    />
+                  </div>
+                </section>
+              </div>
+            )}
+
             {abaModal === 'chat' && (
               <>
-                <div className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6 space-y-4">
-                  <QualificacaoBant qualificacao={aberta.qualificacao_bant} />
+                <div role="tabpanel" id="conversa-painel-chat" aria-labelledby="conversa-aba-chat" tabIndex={0} className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6 space-y-4 focus:outline-none">
                   {!aberta.historico || aberta.historico.length === 0 ? (
                     <p className="text-sm text-center text-gray-400 py-8">Sem mensagens no histórico.</p>
                   ) : (
