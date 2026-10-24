@@ -6873,3 +6873,6 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `cd frontend && npx tsc --noEmit` e `node --test lib/*.test.js` passaram (902 testes). A rota
   compilou localmente; inspeção do painel autenticado por Playwright ficou pendente porque a
   sessão redirecionou ao login, sem usar credenciais.
+- **Ajuste posterior do operador:** no desktop, a faixa passa a reservar explicitamente 60% para
+  sinais comerciais, 30% para prioridade/fit e 10% para atendente e pausa/retomada. Em telas
+  menores, os blocos continuam empilhados para não truncar informação operacional.

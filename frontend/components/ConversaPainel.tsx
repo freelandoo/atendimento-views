@@ -631,7 +631,9 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative border-b px-6 py-3">
-          <div className="grid min-w-0 gap-3 pr-8 xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,1fr)_minmax(13rem,auto)]">
+          {/* No desktop, a largura também declara a prioridade de leitura: 60% dos sinais
+              comerciais, 30% da prioridade/fit e 10% para operação (atendente + agente). */}
+          <div className="grid min-w-0 gap-3 pr-8 xl:grid-cols-[minmax(0,6fr)_minmax(0,3fr)_minmax(0,1fr)]">
             <div className="min-w-[220px] max-w-full xl:col-span-3">
               <h3 className="font-semibold text-base">
                 <TextoTruncado texto={identidade.titulo} className="max-w-full" />
@@ -671,17 +673,17 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
             {/* Pausa é uma ação rápida do topo. O atendente, abaixo, é contexto operacional
                 secundário — nunca se mistura com a prioridade comercial. */}
             {aberta && (
-              <div className="flex min-w-[210px] shrink-0 flex-col gap-2 self-center">
+              <div className="flex min-w-0 flex-col gap-2 self-center">
                 <button
                   type="button"
                   onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
                   disabled={alterandoPausa || !podeGerenciarIa}
                   title={bloqueioIa || (aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente')}
                   aria-label={`${aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}${bloqueioIa ? `. Indisponível: ${bloqueioIa}` : ''}`}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-ink-2 transition hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-[11px] font-medium text-ink-2 transition hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {alterandoPausa ? <Spinner size={12} /> : aberta.agente_pausado ? <IconPlay className="h-3.5 w-3.5" /> : <IconPause className="h-3.5 w-3.5" />}
-                  {alterandoPausa ? 'Atualizando…' : aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
+                  {alterandoPausa ? 'Atualizando…' : aberta.agente_pausado ? 'Retomar' : 'Pausar'}
                 </button>
                 {/* Atendente desta conversa (Etapa 7). "Sem atendente" e' a FILA — o trabalho que
                     precisa ser puxado —, entao ela aparece em destaque, e nao como um traco apagado. */}
