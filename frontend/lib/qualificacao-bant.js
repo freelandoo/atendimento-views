@@ -44,7 +44,7 @@ const ROTULOS = {
 function estadoVisual(dimensao, dado) {
   const status = String(dado?.status || '')
   if (['sem_necessidade', 'sem_prioridade', 'nao_tem_orcamento'].includes(status)) return 'negativo'
-  if (status === 'confirmada' || ['agora', 'curto_prazo', 'futuro', 'decisor', 'influenciador', 'aberto_a_avaliar', 'faixa_compativel'].includes(status)) return 'confirmado'
+  if (status === 'confirmada' || ['agora', 'curto_prazo', 'futuro', 'decisor', 'aberto_a_avaliar', 'faixa_compativel'].includes(status)) return 'confirmado'
   // Falta de caixa, aprovação ou uma resposta ambígua pede esclarecimento; não é descarte.
   return 'pendente'
 }

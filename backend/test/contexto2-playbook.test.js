@@ -104,6 +104,26 @@ test('validarContexto2Playbook preenche seções faltantes', () => {
   assert.ok(j.runtime_policy.fazer_uma_pergunta_por_vez === true)
 })
 
+test('buscarContexto2Ativo carrega os estágios do contexto vinculado à instância', async () => {
+  const pool = {
+    async query(sql) {
+      assert.match(sql, /ec\.estagios_json/)
+      return {
+        rows: [{
+          id: 'versao-1', conteudo_json: {}, conteudo_markdown: '', ativado_em: null,
+          contexto_id: 'contexto-1', contexto_form_json: {},
+          estagios_json: { nucleo: 'Nunca invente fatos.', diagnostico: 'Entenda a dor atual.' },
+        }],
+      }
+    },
+  }
+  const { buscarContexto2Ativo } = require('../src/services/contexto-empresa')
+  const ativo = await buscarContexto2Ativo(pool, 'empresa-1', 'instancia-1')
+  assert.equal(ativo.contexto_id, 'contexto-1')
+  assert.equal(ativo.estagios.nucleo, 'Nunca invente fatos.')
+  assert.equal(ativo.estagios.diagnostico, 'Entenda a dor atual.')
+})
+
 test('gerarContexto2Playbook chama IA mockada e salva versão rascunho', async () => {
   const pool = mockPool()
   const fakeJson = {
@@ -166,6 +186,34 @@ test('decidirRespostaComPlaybook gera mensagem e detecta handoff', async () => {
   })
   assert.match(d.mensagem_pro_lead, /cidade/i)
   assert.strictEqual(d.precisa_handoff, false)
+})
+
+test('decidirRespostaComPlaybook recebe núcleo e estágio ativo do mesmo contexto', async () => {
+  const pool = mockPool()
+  const ai = providerCapturando(JSON.stringify({
+    mensagem_pro_lead: 'Vamos entender o processo atual.',
+    etapa_proxima: 'diagnostico',
+    atualizar_perfil: {},
+    precisa_handoff: false,
+    sugestao_aprendizado: null,
+  }))
+  const { decidirRespostaComPlaybook } = require('../src/services/contexto2-runtime')
+  await decidirRespostaComPlaybook({
+    pool, log: console,
+    playbook: {
+      json: {},
+      estagios: {
+        nucleo: 'Responda com clareza e não invente fatos.',
+        diagnostico: 'Descubra como o lead organiza os contatos hoje.',
+      },
+    },
+    historico: [], mensagem: 'Quero organizar meus contatos.', leadInsights: {},
+    extracao: { campos_faltantes: ['origem_clientes'] },
+    empresaId: 'e', conversaId: 'c', leadPhone: '+55', aiProvider: ai, estagioLive: 'diagnostico',
+  })
+  assert.match(ai.capturado.input.userPrompt, /REGRAS DO CONTEXTO PARA A ETAPA ATUAL \(diagnostico\)/)
+  assert.match(ai.capturado.input.userPrompt, /Responda com clareza/)
+  assert.match(ai.capturado.input.userPrompt, /organiza os contatos hoje/i)
 })
 
 test('decidirRespostaComPlaybook normaliza servico escolhido pelo catalogo canonico', async () => {

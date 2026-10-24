@@ -163,15 +163,9 @@ function createCoreFunnel(deps = {}) {
     parsearHorarioReuniao,
     calcularFimReuniao,
     dataInicioReuniao,
-    // Roteamento multiempresa (Contexto 2 / playbook). Opcionais: se ausentes,
-    // o funil roda 100% no agente legado ({{empresa}}), comportamento atual.
-    getContextoAtivoEmpresa,
-    processarMensagemComPlaybook,
-    // Enviador do Contexto 2 (relocado p/ src/services/contexto2-responder.js).
-    // Quando presente, substitui o responderComPlaybookEmpresa local (transitório).
+    // Motor de conversa multiempresa (Contexto 2 / playbook). A ausência
+    // suprime a resposta automática: conversa de tenant não volta ao legado.
     responderContexto2,
-    // Modelo unificado: contexto ativo com estágios próprios (Núcleo + 5). Opcional.
-    getContextoAtivoComEstagios,
     // Pause global do agente por empresa (config.agente_pausado). Opcional.
     empresaAgentePausada,
     // Plano da empresa permite IA automática? (Fase 1 planos SaaS). Opcional: ausente = libera
@@ -1169,7 +1163,7 @@ function createCoreFunnel(deps = {}) {
     // opener e' o unico caminho que responde SEM analisar: sao mensagens fixas. Bloquear com
     // `return` faria a conversa em modo Analise perder o turno inteiro; pulando o bloco, ela
     // segue para o playbook/legado, ANALISA normalmente e para no gate de entrega de la.
-    if (entregaPermitida && empresaIdConversa && typeof resolverOpenerProtocolo === 'function' && OPENER_ESTAGIOS.has(estagioLive)) {
+    if (entregaPermitida && !empresaIdConversa && typeof resolverOpenerProtocolo === 'function' && OPENER_ESTAGIOS.has(estagioLive)) {
       let opener = null
       try { opener = await resolverOpenerProtocolo(empresaIdConversa, evolutionInstanceConversa) } catch (_) { opener = null }
       if (opener) {
@@ -1213,70 +1207,31 @@ function createCoreFunnel(deps = {}) {
       abordagemOrigemTurno = await obterAbordagemOrigem(pool, empresaIdConversa, numero).catch(() => null)
     }
 
-    // ── Modelo unificado: contexto ATIVO com estágios próprios ────────────────
-    // Se a empresa tem um contexto ativo COM estágios salvos, o agente roda pelo
-    // MESMO fluxo legado (agenda, follow-up, etc.), porém com Núcleo + estágio +
-    // conhecimento DAQUELE contexto injetados no system prompt (via chamarClaudeTurno).
-    let ctxEstagiosTurno = null
-    if (empresaIdConversa && typeof getContextoAtivoComEstagios === 'function') {
-      try {
-        ctxEstagiosTurno = await getContextoAtivoComEstagios(pool, empresaIdConversa, evolutionInstanceConversa)
-      } catch (e) {
-        logger.warn({ err: e.message, empresa_id: empresaIdConversa }, 'Falha ao carregar contexto ativo com estágios — seguindo sem injeção')
-        ctxEstagiosTurno = null
+    // ── Motor único de conversa ──────────────────────────────────────────────
+    // Atendimento multiempresa não cai mais no funil antigo. O playbook da
+    // instância incorpora os estágios como regras da etapa atual e é a única
+    // porta que extrai BANT, persiste insights e decide a resposta.
+    if (empresaIdConversa) {
+      if (typeof responderContexto2 !== 'function') {
+        logger.error({ empresa_id: empresaIdConversa }, 'Motor de conversa indisponível — resposta automática suprimida')
+        return { skipped: true, reason: 'motor_conversa_indisponivel' }
       }
+      return await responderContexto2({
+        numero,
+        empresaId: empresaIdConversa,
+        conversaUsada,
+        historico,
+        estagioLive,
+        abordagemOrigem: abordagemOrigemTurno,
+        capacidade: capacidadeTurno,
+        modoGlobal: modoGlobalTurno,
+      })
     }
 
-    // ── Roteamento de playbook (TRANSITÓRIO) ──────────────────────────────────
-    // Só quando NÃO há contexto com estágios. Empresa com Contexto 2 ativo (sem
-    // estágios) ainda responde pelo playbook. PJ sem nada cai no fluxo legado.
-    if (
-      !ctxEstagiosTurno &&
-      empresaIdConversa &&
-      typeof getContextoAtivoEmpresa === 'function' &&
-      typeof processarMensagemComPlaybook === 'function'
-    ) {
-      let playbookAtivo = null
-      try {
-        playbookAtivo = await getContextoAtivoEmpresa(pool, empresaIdConversa)
-      } catch (e) {
-        logger.warn(
-          { err: e.message, empresa_id: empresaIdConversa },
-          'Falha ao checar Contexto 2 ativo — seguindo no agente legado'
-        )
-      }
-      if (playbookAtivo) {
-        // Enviador relocado (contexto2-responder.js) quando injetado; senão o local.
-        const responder = responderContexto2 || responderComPlaybookEmpresa
-        return await responder({
-          numero,
-          empresaId: empresaIdConversa,
-          conversaUsada,
-          historico,
-          estagioLive,
-          abordagemOrigem: abordagemOrigemTurno,
-          // A capacidade viaja junto: o gate de entrega do playbook e' o mesmo deste motor,
-          // e follow-up executado por aqui nao pode ser barrado pelo toggle da conversa.
-          capacidade: capacidadeTurno,
-          // O global JA resolvido: uma leitura por turno, nao uma por enviador.
-          modoGlobal: modoGlobalTurno,
-        })
-      }
-    }
-
-    // Toda chamada ao Claude deste turno injeta os estágios+conhecimento do
-    // contexto ativo (quando houver). Sem contexto ativo, é o chamarClaude normal.
+    // Este restante é o caminho histórico sem empresa resolvida. Não pode ser
+    // alcançado por uma conversa multiempresa/instância comprovada.
     const chamarClaudeTurno = (h, e, p, v, opc = {}) =>
-      ctxEstagiosTurno
-        ? chamarClaude(h, e, p, v, {
-          ...opc,
-          _flags_extras: {
-            ...(opc && opc._flags_extras ? opc._flags_extras : {}),
-            contextoEstagios: ctxEstagiosTurno,
-            abordagemOrigem: abordagemOrigemTurno,
-          },
-        })
-        : chamarClaude(h, e, p, v, {
+      chamarClaude(h, e, p, v, {
           ...opc,
           _flags_extras: { ...(opc && opc._flags_extras ? opc._flags_extras : {}), abordagemOrigem: abordagemOrigemTurno },
         })

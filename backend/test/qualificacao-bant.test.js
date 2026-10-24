@@ -54,3 +54,16 @@ test('BANT não transforma falta de caixa em qualificação; pede esclarecimento
   assert.strictEqual(estado.status, 'em_qualificacao')
   assert.strictEqual(estado.proxima_dimensao, 'budget')
 })
+
+test('BANT não libera assunção quando a autoridade conhecida não é decisora', () => {
+  const estado = avaliarQualificacaoBant({
+    necessidade: { status: 'confirmada' },
+    timing: { status: 'agora' },
+    autoridade: { status: 'influenciador', evidencia: 'Leva o tema para o dono.' },
+    budget: { status: 'faixa_compativel' },
+  })
+  assert.strictEqual(estado.status, 'em_qualificacao')
+  assert.strictEqual(estado.pronto_para_assuncao, false)
+  assert.strictEqual(estado.proxima_dimensao, 'autoridade')
+  assert.ok(!estado.campos_confirmados.includes('autoridade'))
+})

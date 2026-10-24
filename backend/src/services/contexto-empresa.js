@@ -522,7 +522,7 @@ async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
   if (evolutionInstance) {
     const { rows } = await pool.query(
       `SELECT ecv.id, ecv.conteudo_json, ecv.conteudo_markdown, ecv.ativado_em, ecv.contexto_id,
-              ec.contexto_form_json
+              ec.contexto_form_json, ec.estagios_json
          FROM app.empresa_whatsapp_instances ewi
          JOIN app.empresa_contexto_versoes ecv
            ON ecv.contexto_id = ewi.contexto_id
@@ -543,6 +543,7 @@ async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
         markdown: rows[0].conteudo_markdown || '',
         ativado_em: rows[0].ativado_em,
         contexto_id: rows[0].contexto_id,
+        estagios: rows[0].estagios_json && typeof rows[0].estagios_json === 'object' ? rows[0].estagios_json : {},
       }
     }
     // Atendimento é 100% por instância (regra do projeto): instância informada
@@ -554,7 +555,7 @@ async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
 
   const { rows } = await pool.query(
     `SELECT ecv.id, ecv.conteudo_json, ecv.conteudo_markdown, ecv.ativado_em, ecv.contexto_id,
-            ec.contexto_form_json
+            ec.contexto_form_json, ec.estagios_json
        FROM app.empresa_contexto_versoes ecv
        LEFT JOIN app.empresa_contextos ec
          ON ec.id = ecv.contexto_id
@@ -570,6 +571,7 @@ async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
     markdown: rows[0].conteudo_markdown || '',
     ativado_em: rows[0].ativado_em,
     contexto_id: rows[0].contexto_id,
+    estagios: rows[0].estagios_json && typeof rows[0].estagios_json === 'object' ? rows[0].estagios_json : {},
   }
 }
 

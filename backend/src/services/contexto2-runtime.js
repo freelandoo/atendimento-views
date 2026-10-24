@@ -28,6 +28,33 @@ function _truncatePlaybook(json) {
   return s.length > 12000 ? s.slice(0, 12000) + '\n…[truncado]…' : s
 }
 
+const ESTAGIO_POR_FUNIL = {
+  primeiro_contato: 'primeiro_contato',
+  diagnostico: 'diagnostico',
+  proposta: 'proposta',
+  objecao: 'objecao',
+  fechamento: 'fechamento',
+}
+
+function _textoContextoSeguro(valor, limite = 5000) {
+  const texto = typeof valor === 'string' ? valor.trim() : ''
+  return texto.length > limite ? `${texto.slice(0, limite)}\n…[estágio truncado]…` : texto
+}
+
+// O playbook decide a conversa; os estágios do mesmo contexto só acrescentam
+// regras da etapa atual. Eles não escolhem outro motor nem abrem um fallback.
+function _blocoEstagioAtivo(playbook, estagioLive) {
+  const estagios = playbook?.estagios && typeof playbook.estagios === 'object' ? playbook.estagios : {}
+  const chave = ESTAGIO_POR_FUNIL[String(estagioLive || '').trim()] || 'diagnostico'
+  const nucleo = _textoContextoSeguro(estagios.nucleo, 3500)
+  const etapa = _textoContextoSeguro(estagios[chave], 4500)
+  if (!nucleo && !etapa) return ''
+  return `REGRAS DO CONTEXTO PARA A ETAPA ATUAL (${chave}):\n${[
+    nucleo ? `NÚCLEO:\n${nucleo}` : '',
+    etapa ? `ETAPA:\n${etapa}` : '',
+  ].filter(Boolean).join('\n\n')}\n\n`
+}
+
 function _catalogoServicosDoPlaybook(playbook) {
   const pb = playbook?.json || playbook || {}
   const servicos = Array.isArray(pb.servicos) ? pb.servicos : []
@@ -189,11 +216,12 @@ Retorne APENAS JSON válido neste schema:
   "motivo_handoff": ""
 }`
 
-async function extrairDadosDaMensagem({ pool, log, playbook, historico, mensagem, leadInsights, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true }) {
+async function extrairDadosDaMensagem({ pool, log, playbook, historico, mensagem, leadInsights, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true, estagioLive = null }) {
   const provider = aiProvider || require('../ai-provider')
   const userPrompt = `PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
+${_blocoEstagioAtivo(playbook, estagioLive)}
 CATALOGO DE SERVICOS CANONICO (use exatamente estes slugs quando detectar interesse):
 ${_formatarCatalogoServicosParaPrompt(playbook)}
 
@@ -455,7 +483,7 @@ sugestao_aprendizado pode ser null OU objeto:
 { "tipo": "objecao_nova|pergunta_frequente|resposta_que_funcionou|outro",
   "evidencia": "", "sugestao_markdown": "", "confianca": "baixa|media|alta" }`
 
-async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true, abordagemOrigem = null }) {
+async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true, abordagemOrigem = null, estagioLive = null }) {
   const blocoOrigem = blocoOrientacaoOrigem(abordagemOrigem)
   const provider = aiProvider || require('../ai-provider')
   // Gate de agenda por instância: se desligada, força reuniao_status neutro e
@@ -465,6 +493,7 @@ async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mens
   const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}${blocoOrigem ? `ORIENTACAO COMERCIAL QUE ORIGINOU ESTA CONVERSA (precedencia sobre o carro-chefe generico do playbook):\n${blocoOrigem}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
+${_blocoEstagioAtivo(playbook, estagioLive)}
 CATALOGO DE SERVICOS CANONICO (quando recomendar/oferecer, retorne servico_*_slug com um destes slugs):
 ${_formatarCatalogoServicosParaPrompt(playbook)}
 
@@ -879,7 +908,7 @@ Mantenha "intencao" (singular) preenchido com intencao_principal para compatibil
 REGRA DE URL — PROIBIDO INVENTAR LINK.
 Nunca emita example.com, localhost, teste.com, site.com, yoursite.com, dominio.com, sample.com, fake.com ou qualquer URL placeholder. Use APENAS URLs presentes em playbook.links_uteis_estruturados, playbook.cadastro_e_onboarding.link_cadastro, playbook.resumo_empresa.site ou nos dados do lead. Se não houver URL real, NÃO inclua link na resposta.`
 
-async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true, abordagemOrigem = null }) {
+async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true, abordagemOrigem = null, estagioLive = null }) {
   const provider = aiProvider || require('../ai-provider')
   const blocoOrigem = blocoOrientacaoOrigem(abordagemOrigem)
   // Gate de agenda (também no caminho bundle, que é o default): se desligada, anexa
@@ -888,6 +917,7 @@ async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem,
   const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}${blocoOrigem ? `ORIENTACAO COMERCIAL QUE ORIGINOU ESTA CONVERSA (precedencia sobre o carro-chefe generico do playbook):\n${blocoOrigem}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
+${_blocoEstagioAtivo(playbook, estagioLive)}
 CATALOGO DE SERVICOS CANONICO (use estes slugs em servicos_interesse_slugs e servico_*_slug):
 ${_formatarCatalogoServicosParaPrompt(playbook)}
 
@@ -968,7 +998,7 @@ function _extrairLinkPrincipalDoPlaybook(pb) {
  *
  * Variável de ambiente CONTEXT_PLAYBOOK_BUNDLE=false força duas chamadas (debug).
  */
-async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, leadPhone, mensagem, historico, evolutionInstance, aiProvider, abordagemOrigem = null }) {
+async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, leadPhone, mensagem, historico, evolutionInstance, aiProvider, abordagemOrigem = null, estagioLive = null }) {
   const playbook = await carregarPlaybookAtivo(pool, empresaId, evolutionInstance)
   if (!playbook) return null
 
@@ -992,19 +1022,19 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
   if (usarBundle) {
     const b = await extrairEDecidirBundle({
       pool, log, playbook, historico, mensagem, leadInsights, apelido,
-      empresaId, conversaId, leadPhone, aiProvider, usaAgenda, abordagemOrigem,
+      empresaId, conversaId, leadPhone, aiProvider, usaAgenda, abordagemOrigem, estagioLive,
     })
     extracao = b.extracao
     decisao = b.decisao
   } else {
     extracao = await extrairDadosDaMensagem({
       pool, log, playbook, historico, mensagem, leadInsights,
-      empresaId, conversaId, leadPhone, aiProvider, usaAgenda,
+      empresaId, conversaId, leadPhone, aiProvider, usaAgenda, estagioLive,
     })
     consolidarQualificacaoBant(extracao, leadInsights)
     decisao = await decidirRespostaComPlaybook({
       pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido,
-      empresaId, conversaId, leadPhone, aiProvider, usaAgenda, abordagemOrigem,
+      empresaId, conversaId, leadPhone, aiProvider, usaAgenda, abordagemOrigem, estagioLive,
     })
   }
 

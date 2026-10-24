@@ -76,6 +76,20 @@ test('responderContexto2: pula o turno quando o playbook não produz mensagem', 
   assert.strictEqual(calls.enviarMensagem.length, 0)
 })
 
+test('responderContexto2: instância sem playbook não cai em resposta alternativa', async () => {
+  let args = null
+  const { responderContexto2, calls } = montar({
+    processarMensagemComPlaybook: async (entrada) => {
+      args = entrada
+      return null
+    },
+  })
+  const r = await responderContexto2({ numero: '5511999990000', empresaId: 'e1', conversaUsada: conversaBase, historico: historicoBase, estagioLive: 'diagnostico' })
+  assert.deepStrictEqual(r, { skipped: true, reason: 'motor_conversa_nao_configurado' })
+  assert.strictEqual(args.estagioLive, 'diagnostico')
+  assert.strictEqual(calls.enviarMensagem.length, 0)
+})
+
 test('responderContexto2: handoff pausa a conversa (5º arg = true)', async () => {
   const { responderContexto2, calls } = montar({
     processarMensagemComPlaybook: async () => ({ extracao: {}, decisao: { mensagem_pro_lead: 'Vou te passar pra equipe.', precisa_handoff: true } }),

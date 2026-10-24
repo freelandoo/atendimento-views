@@ -31,3 +31,10 @@ test('mostra vermelho somente para bloqueio explícito informado pela API', () =
   assert.equal(leitura.dimensoes[0].estado, 'negativo')
   assert.equal(traduzirQualificacaoBant(null).dimensoes[0].estado, 'pendente')
 })
+
+test('influenciador é pendência de autoridade, não confirmação verde', () => {
+  const leitura = traduzirQualificacaoBant({ autoridade: { status: 'influenciador' } })
+  const autoridade = leitura.dimensoes.find((item) => item.chave === 'autoridade')
+  assert.equal(autoridade.estado, 'pendente')
+  assert.equal(autoridade.valor, 'Influenciador')
+})

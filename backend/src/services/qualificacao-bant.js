@@ -45,6 +45,14 @@ function eixoTemDado(eixo, valor) {
   return eixo !== 'budget' || valor.precisa_esclarecer !== true
 }
 
+function eixoConfirmadoParaQualificacao(eixo, valor) {
+  if (!eixoTemDado(eixo, valor)) return false
+  if (eixo === 'necessidade') return valor.status === 'confirmada'
+  if (eixo === 'timing') return ['agora', 'curto_prazo', 'futuro'].includes(valor.status)
+  if (eixo === 'autoridade') return valor.status === 'decisor'
+  return ['aberto_a_avaliar', 'faixa_compativel'].includes(valor.status)
+}
+
 function mesclarQualificacaoBant(anterior, atual) {
   const prev = normalizarQualificacaoBant(anterior)
   const next = normalizarQualificacaoBant(atual)
@@ -62,28 +70,28 @@ function mesclarQualificacaoBant(anterior, atual) {
 
 function avaliarQualificacaoBant(valor) {
   const bant = normalizarQualificacaoBant(valor)
-  const lacunas = BANT_ORDEM.filter((eixo) => !eixoTemDado(eixo, bant[eixo]))
-  const necessidadeValida = bant.necessidade.status === 'confirmada'
-  const timingValido = ['agora', 'curto_prazo', 'futuro'].includes(bant.timing.status)
-  const autoridadeConhecida = eixoTemDado('autoridade', bant.autoridade)
-  const budgetViavel = ['aberto_a_avaliar', 'faixa_compativel'].includes(bant.budget.status)
-
-  let status = 'em_qualificacao'
-  if (necessidadeValida && timingValido && autoridadeConhecida && budgetViavel && lacunas.length === 0) {
-    status = 'pronto_para_assuncao'
-  } else if (
+  const temImpedimento =
     bant.necessidade.status === 'sem_necessidade' ||
     bant.timing.status === 'sem_prioridade' ||
     bant.budget.status === 'nao_tem_orcamento'
-  ) {
+  const lacunas = temImpedimento
+    ? []
+    : BANT_ORDEM.filter((eixo) => !eixoConfirmadoParaQualificacao(eixo, bant[eixo]))
+
+  let status = 'em_qualificacao'
+  if (!lacunas.length && !temImpedimento) {
+    status = 'pronto_para_assuncao'
+  } else if (temImpedimento) {
     status = 'nao_qualificado'
   }
 
   return {
     ...bant,
     status,
+    pronto_para_assuncao: status === 'pronto_para_assuncao',
+    nao_qualificado: status === 'nao_qualificado',
     proxima_dimensao: status === 'em_qualificacao' ? (lacunas[0] || null) : null,
-    campos_confirmados: BANT_ORDEM.filter((eixo) => eixoTemDado(eixo, bant[eixo])),
+    campos_confirmados: BANT_ORDEM.filter((eixo) => eixoConfirmadoParaQualificacao(eixo, bant[eixo])),
     campos_pendentes: lacunas,
   }
 }

@@ -116,10 +116,19 @@ function createContexto2Responder(deps = {}) {
         historico,
         evolutionInstance,
         abordagemOrigem,
+        estagioLive,
       })
     } catch (e) {
       logger.error({ err: e.message, empresa_id: empresaId, numero }, 'Playbook multiempresa falhou — sem resposta automática neste turno')
       return { skipped: true, reason: 'playbook_erro' }
+    }
+
+    if (!res) {
+      logger.warn(
+        { empresa_id: empresaId, evolution_instance: evolutionInstance || null },
+        'Motor de conversa não configurado para a instância — resposta automática suprimida'
+      )
+      return { skipped: true, reason: 'motor_conversa_nao_configurado' }
     }
 
     const extracao = res?.extracao || {}
