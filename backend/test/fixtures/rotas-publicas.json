@@ -312,6 +312,7 @@
     "POST /api/empresas/:empresaId/conversas/:numero/mensagem",
     "POST /api/empresas/:empresaId/conversas/:numero/orientador-resposta",
     "POST /api/empresas/:empresaId/conversas/:numero/reprocessar",
+    "POST /api/empresas/:empresaId/conversas/:numero/audios/reprocessar",
     "POST /api/empresas/:empresaId/conversas/:numero/resumo",
     "POST /api/empresas/:empresaId/equipes-comerciais",
     "POST /api/empresas/:empresaId/equipes-comerciais/:equipeId/distribuicao",

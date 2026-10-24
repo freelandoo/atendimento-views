@@ -54,6 +54,7 @@ function registerWebhookRoute(app, deps = {}) {
     obterEstadoDebounceResposta,
     textoJaProcessadoRecentemente,
     enfileirarJobRespostaWebhook,
+    enfileirarJobTranscricaoAudio,
     registrarRespostaLembreteReuniao,
     podeGerarRespostaAutomatica,
     eventoSaudeDeWebhook = eventoSaudeDeWebhookDefault,
@@ -265,8 +266,10 @@ function registerWebhookRoute(app, deps = {}) {
 
         // A instancia provada segue junto: baixar a midia desta mensagem tambem e uma
         // chamada a UMA instancia da Evolution (Fase 2).
-        const { texto, visao } = await extrairTextoEMidiaDoWebhook(msg, {
+        const { texto, visao, audio } = await extrairTextoEMidiaDoWebhook(msg, {
           instanceName: req.evolutionInstance || '',
+          empresaId: req.empresaId,
+          deferir: true,
         })
         if (!texto && !visao) return
 
@@ -395,6 +398,15 @@ function registerWebhookRoute(app, deps = {}) {
           req.empresaId,
           req.evolutionInstance
         )
+        if (audio?.id) {
+          await enfileirarJobTranscricaoAudio(audio.id, requestId)
+          await marcarPrimeiraResposta(numero).catch((err) =>
+            webhookLog.warn({ err: serializeError(err) }, 'Falha ao marcar primeira resposta por áudio')
+          )
+          await cancelarFollowupsAutoPendentes(numero, 'lead_respondeu')
+          webhookLog.info({ operation: 'audio_transcription', etapa: 'queued', audio_id: audio.id, instance: req.evolutionInstance }, 'Áudio registrado para transcrição')
+          return
+        }
         // "Conversou": carimba a 1a resposta do lead (dono ja' comprovado acima). Idempotente e
         // nunca derruba o webhook. Metrica do painel comercial — so conta pra frente.
         if (typeof marcarPrimeiraResposta === 'function') {

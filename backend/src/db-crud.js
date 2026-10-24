@@ -592,27 +592,30 @@ function createDbCrud({ pool, logger, serializeError }) {
   }
 
   async function registrarAudioProcessamento(numero, messageKey, msg, audioPart, patch = {}) {
-    const status = ['pending', 'processed', 'failed'].includes(patch.status) ? patch.status : 'pending'
+    const status = ['pending', 'downloading', 'transcribing', 'completed', 'retrying', 'failed', 'processed'].includes(patch.status) ? patch.status : 'pending'
     const erro = patch.erro ? resumirTextoOperacional(patch.erro, 800) : null
     const transcricao = typeof patch.transcricao === 'string' && patch.transcricao.trim() ? patch.transcricao.trim() : null
     const mimetype = patch.mimetype || audioPart?.mimetype || null
     const payload = msg && typeof msg === 'object' ? JSON.stringify(msg) : null
     const key = messageKey || null
+    const empresaId = patch.empresaId || null
+    const evolutionInstance = patch.evolutionInstance || null
     const { rows } = await pool.query(
       `INSERT INTO vendas.audio_processamentos
-         (numero, message_key, web_message_info, mimetype, status, attempts, erro, transcricao, processado_em)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, CASE WHEN $5 = 'processed' THEN NOW() ELSE NULL END)
+         (numero, message_key, web_message_info, mimetype, status, attempts, erro, transcricao, empresa_id, evolution_instance, processado_em)
+       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $5 IN ('processed', 'completed') THEN NOW() ELSE NULL END)
        ON CONFLICT (message_key) DO UPDATE
        SET web_message_info = COALESCE(EXCLUDED.web_message_info, vendas.audio_processamentos.web_message_info),
            mimetype = COALESCE(EXCLUDED.mimetype, vendas.audio_processamentos.mimetype),
+           empresa_id = COALESCE(EXCLUDED.empresa_id, vendas.audio_processamentos.empresa_id),
            status = EXCLUDED.status,
            attempts = vendas.audio_processamentos.attempts + EXCLUDED.attempts,
            erro = EXCLUDED.erro,
            transcricao = COALESCE(EXCLUDED.transcricao, vendas.audio_processamentos.transcricao),
-           processado_em = CASE WHEN EXCLUDED.status = 'processed' THEN NOW() ELSE vendas.audio_processamentos.processado_em END,
+           processado_em = CASE WHEN EXCLUDED.status IN ('processed', 'completed') THEN NOW() ELSE vendas.audio_processamentos.processado_em END,
            atualizado_em = NOW()
        RETURNING id, numero, message_key, status, attempts, erro, transcricao, criado_em, atualizado_em, processado_em`,
-      [numero, key, payload, mimetype, status, patch.incrementAttempt ? 1 : 0, erro, transcricao]
+      [numero, key, payload, mimetype, status, patch.incrementAttempt ? 1 : 0, erro, transcricao, empresaId, evolutionInstance]
     )
     return rows[0]
   }

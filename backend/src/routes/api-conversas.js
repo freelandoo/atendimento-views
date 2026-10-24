@@ -18,6 +18,8 @@ const { modoEfetivo } = require('../services/conversa-modo-ia')
 const { anexarNomeExibicao } = require('../services/lead-nome-exibicao')
 const { buscarNomesMapsPorTelefone, buscarDadosProspectPorTelefone } = require('../db/lead-nome-maps')
 const { historicoPorTelefone } = require('../db/lead-responsavel')
+const { enfileirarTranscricaoAudio } = require('../db/audio-transcricao')
+const { JOB_MAX_ATTEMPTS } = require('../config')
 // Ownership da CONVERSA (CRM em equipe, Etapa 7). A regra e' pura; o recorte depende da
 // capacidade, avaliada pelo modulo puro de acesso.
 const CR = require('../db/conversa-responsavel')
@@ -416,6 +418,24 @@ router.get('/:numero', requireAuth, requireEmpresaAccess, alcancaConversa, async
   if (!conversa) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
   const [comNome] = await anexarNomesExibicao([anexarScoreInteresse(conversa)], req.empresa.id)
   return res.json({ ok: true, data: await anexarModoIa(comNome, req.empresa.id) })
+})
+
+// POST /api/empresas/:empresaId/conversas/:numero/audios/reprocessar
+// Não chama a OpenAI nesta requisição nem fala com o lead: só recoloca a última falha na fila.
+router.post('/:numero/audios/reprocessar', requireAuth, requireEmpresaAccess, alcancaConversa, requireCapacidade(CAP.CONVERSA_GERENCIAR_IA), async (req, res) => {
+  try {
+    const { rows: [audio] } = await pool.query(
+      `SELECT id, status FROM vendas.audio_processamentos
+        WHERE empresa_id = $1 AND numero = $2 AND status = 'failed'
+        ORDER BY atualizado_em DESC LIMIT 1`,
+      [req.empresa.id, req.params.numero]
+    )
+    if (!audio) return res.status(409).json({ ok: false, error: { code: 'NO_FAILED_AUDIO', message: 'Não há áudio com falha para tentar novamente.' } })
+    await enfileirarTranscricaoAudio(pool, audio.id, { maxAttempts: JOB_MAX_ATTEMPTS })
+    return res.json({ ok: true, data: { id: audio.id, status: 'pending' } })
+  } catch (err) {
+    return erroConversas(res, err, 'AUDIO_REQUEUE_FAILED')
+  }
 })
 
 // DELETE /api/empresas/:empresaId/conversas/:numero

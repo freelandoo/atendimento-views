@@ -137,6 +137,7 @@ const ROTAS_DE_PLATAFORMA = ['/api/llm', '/api/webhook-quarentena']
 // Sem isto, montar `/roteiros` com ROTEIRO_LER deixaria o comercial CRIAR roteiro, e
 // `/banco-leads` com LEAD_VER_APROVADOS deixaria ele disparar em lote pela Evolution.
 const ESCRITAS_COM_CAPACIDADE_PROPRIA = [
+  { arquivo: 'api-conversas.js', capacidade: 'CONVERSA_GERENCIAR_IA', minimo: 3 },
   { arquivo: 'api-roteiros.js', capacidade: 'ROTEIRO_GERENCIAR', minimo: 5 },
   { arquivo: 'api-campanhas.js', capacidade: 'CAMPANHA_GERENCIAR', minimo: 5 },
   { arquivo: 'api-banco-leads.js', capacidade: 'LEAD_DISPARAR_LOTE', minimo: 5 },

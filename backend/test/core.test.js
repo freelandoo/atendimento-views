@@ -4666,10 +4666,11 @@ test('reivindicarProximoJob: SQL ordena vendas antes de prospeccao', () => {
   assert.ok(fn >= 0, 'reivindicarProximoJob presente em agent.js')
   const slice = src.slice(fn, fn + 2500)
   const iWh = slice.indexOf("WHEN tipo = 'webhook_resposta' THEN 0")
-  const iAg = slice.indexOf("WHEN tipo = 'agenda_lembrete_reuniao' THEN 1")
-  const iFu = slice.indexOf("WHEN tipo = 'followup_auto' THEN 2")
-  const iPr = slice.indexOf("WHEN tipo LIKE 'prospeccao_%' THEN 3")
-  assert.ok(iWh >= 0 && iAg > iWh && iFu > iAg && iPr > iFu, 'ORDER BY: tier0 webhook, tier1 lembrete, tier2 followup, tier3 prospeccao_%')
+  const iAu = slice.indexOf("WHEN tipo = 'audio_transcricao' THEN 1")
+  const iAg = slice.indexOf("WHEN tipo = 'agenda_lembrete_reuniao' THEN 2")
+  const iFu = slice.indexOf("WHEN tipo = 'followup_auto' THEN 3")
+  const iPr = slice.indexOf("WHEN tipo LIKE 'prospeccao_%' THEN 4")
+  assert.ok(iWh >= 0 && iAu > iWh && iAg > iAu && iFu > iAg && iPr > iFu, 'ORDER BY: tier0 webhook, tier1 transcrição, tier2 lembrete, tier3 followup, tier4 prospeccao_%')
 })
 
 test('enfileirar e consumir jobs de prospeccao', async () => {

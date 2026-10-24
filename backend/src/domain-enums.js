@@ -45,7 +45,7 @@ const EVENTOS_COMERCIAIS_TIPOS = Object.freeze([
 // domain-enums.test.js trava dois lados: (1) esta lista == a CHECK; (2) todo tipo literal
 // enfileirado em src/ está aqui. Ordem espelha a CHECK.
 const JOB_QUEUE_TIPOS = Object.freeze([
-  'webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao',
+  'webhook_resposta', 'audio_transcricao', 'followup_auto', 'agenda_lembrete_reuniao',
   'prospeccao_nichos_sync', 'prospeccao_places_auto', 'prospeccao_completo',
   'prospeccao_envio_agendado', 'resumo_agenda_operador',
 ])

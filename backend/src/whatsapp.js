@@ -144,6 +144,8 @@ function extrairBase64DaRespostaEvolution(data) {
   if (typeof data === 'string') return data
   if (typeof data.base64 === 'string') return data.base64
   if (data.data != null && typeof data.data === 'string') return data.data
+  if (typeof data.data?.base64 === 'string') return data.data.base64
+  if (typeof data.message?.base64 === 'string') return data.message.base64
   return null
 }
 
@@ -156,7 +158,7 @@ async function evolutionObterBase64Midia(webMessageInfo, opts = {}) {
   const url = `${EVOLUTION_URL}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`
   const { data } = await axios.post(
     url,
-    { message: webMessageInfo, convertToMp4: false },
+    { message: webMessageInfo, convertToMp4: opts.convertToMp4 === true },
     { headers: { apikey: EVOLUTION_KEY }, timeout: 120000 }
   )
   assertEvolutionEnvioOk(data, 'getBase64FromMediaMessage')

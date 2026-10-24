@@ -63,6 +63,7 @@ const { createFollowupAuto } = require('./followup-auto')
 const { createOperatorCommands } = require('./operator-commands')
 const { registerWebhookRoute } = require('./webhook-handler')
 const aiProvider = require('./ai-provider')
+const { enfileirarTranscricaoAudio } = require('./db/audio-transcricao')
 const { parseAiResponse } = require('./ai-response')
 const {
   criarEventoAgenda,
@@ -374,6 +375,85 @@ async function enfileirarJobRespostaWebhook(numero, requestId = null) {
   return rows[0]?.id || null
 }
 
+async function enfileirarJobTranscricaoAudio(audioId, requestId = null) {
+  return enfileirarTranscricaoAudio(pool, audioId, { maxAttempts: JOB_MAX_ATTEMPTS, requestId })
+}
+
+function marcadorAudioPendente(id) {
+  return `[Audio recebido — transcrição em processamento #${id}]`
+}
+
+async function substituirMarcadorAudio(row, conteudo) {
+  if (!row?.empresa_id || !row?.numero) return false
+  const { rows: [conversa] } = await pool.query(
+    `SELECT historico FROM vendas.conversas WHERE empresa_id = $1 AND numero = $2 LIMIT 1`,
+    [row.empresa_id, row.numero]
+  )
+  const historico = Array.isArray(conversa?.historico) ? conversa.historico : []
+  const marcador = marcadorAudioPendente(row.id)
+  let mudou = false
+  const atualizado = historico.map((item) => {
+    if (item?.role !== 'user' || item?.content !== marcador) return item
+    mudou = true
+    return { ...item, content: conteudo }
+  })
+  if (!mudou) return false
+  await pool.query(
+    `UPDATE vendas.conversas SET historico = $3::jsonb, atualizado_em = NOW()
+      WHERE empresa_id = $1 AND numero = $2`,
+    [row.empresa_id, row.numero, JSON.stringify(atualizado)]
+  )
+  return true
+}
+
+async function processarJobTranscricaoAudio(job) {
+  const id = Number(job?.payload?.audio_processamento_id)
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Job audio_transcricao sem audio_processamento_id')
+  const { rows: [row] } = await pool.query(`SELECT * FROM vendas.audio_processamentos WHERE id = $1`, [id])
+  if (!row || row.status === 'completed') return
+  if (!row.web_message_info || !row.empresa_id || !row.evolution_instance) {
+    throw new Error('Áudio pendente sem payload, empresa ou instância comprovada')
+  }
+  const tentar = (Number(job.attempts) || 0) + 1
+  try {
+    const audioPart = localizarAudioPartMensagem(row.web_message_info)
+    const resultado = await baixarETranscreverAudioMensagem(row.web_message_info, audioPart, row.evolution_instance, {
+      onStage: async (status) => {
+        await pool.query(
+          `UPDATE vendas.audio_processamentos
+              SET status = $2, tentativa_em = NOW(), attempts = $3, atualizado_em = NOW()
+            WHERE id = $1`,
+          [id, status, tentar]
+        )
+      },
+    })
+    await pool.query(
+      `UPDATE vendas.audio_processamentos
+          SET status = 'completed', attempts = $2, erro = NULL, transcricao = $3,
+              processado_em = NOW(), proxima_tentativa_em = NULL, atualizado_em = NOW()
+        WHERE id = $1`,
+      [id, tentar, resultado.transcricao]
+    )
+    const substituiu = await substituirMarcadorAudio(row, `[Audio transcrito] ${resultado.transcricao}`)
+    logger.info({ operation: 'audio_transcription', etapa: 'completed', audio_id: id, tentativa: tentar, bytes: resultado.bytes, instance: row.evolution_instance }, 'Transcrição de áudio concluída')
+    if (substituiu) await enfileirarJobRespostaWebhook(row.numero, job.payload?.request_id || null)
+  } catch (err) {
+    const final = tentar >= (Number(job.max_attempts) || JOB_MAX_ATTEMPTS)
+    const mensagem = String(err?.message || err || 'falha na transcrição').slice(0, 800)
+    await pool.query(
+      `UPDATE vendas.audio_processamentos
+          SET status = $2, attempts = $3, erro = $4,
+              proxima_tentativa_em = CASE WHEN $2 = 'retrying' THEN NOW() + ($5::int * INTERVAL '1 second') ELSE NULL END,
+              atualizado_em = NOW()
+        WHERE id = $1`,
+      [id, final ? 'failed' : 'retrying', tentar, mensagem, Math.min(300, Math.max(5, tentar * tentar * 5))]
+    )
+    if (final) await substituirMarcadorAudio(row, '[Áudio recebido — transcrição indisponível. O operador pode tentar novamente.]')
+    logger.warn({ operation: 'audio_transcription', etapa: final ? 'failed' : 'retrying', audio_id: id, tentativa: tentar, instance: row.evolution_instance, erro: mensagem }, 'Falha na transcrição de áudio')
+    throw err
+  }
+}
+
 async function reivindicarProximoJob() {
   const { rows } = await pool.query(
     `
@@ -385,10 +465,11 @@ async function reivindicarProximoJob() {
       ORDER BY
         CASE
           WHEN tipo = 'webhook_resposta' THEN 0
-          WHEN tipo = 'agenda_lembrete_reuniao' THEN 1
-          WHEN tipo = 'followup_auto' THEN 2
-          WHEN tipo LIKE 'prospeccao_%' THEN 3
-          ELSE 3
+          WHEN tipo = 'audio_transcricao' THEN 1
+          WHEN tipo = 'agenda_lembrete_reuniao' THEN 2
+          WHEN tipo = 'followup_auto' THEN 3
+          WHEN tipo LIKE 'prospeccao_%' THEN 4
+          ELSE 4
         END ASC,
         available_at ASC,
         id ASC
@@ -446,6 +527,9 @@ async function processarJob(job) {
   }
   if (job.tipo === 'followup_auto') {
     return processarFollowupAutoJob(job)
+  }
+  if (job.tipo === 'audio_transcricao') {
+    return processarJobTranscricaoAudio(job)
   }
   if (job.tipo === 'agenda_lembrete_reuniao') {
     await processarLembreteReuniaoJob(job)
@@ -5919,6 +6003,7 @@ registerWebhookRoute(app, {
   obterEstadoDebounceResposta,
   textoJaProcessadoRecentemente,
   enfileirarJobRespostaWebhook,
+  enfileirarJobTranscricaoAudio,
   registrarRespostaLembreteReuniao: registrarRespostaLembreteReuniaoComAlerta,
   podeGerarRespostaAutomatica,
   capturarNomeContato,

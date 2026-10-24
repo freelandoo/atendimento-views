@@ -452,7 +452,7 @@ CREATE TABLE IF NOT EXISTS vendas.job_queue (
   atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT job_queue_status_chk CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
   CONSTRAINT job_queue_tipo_chk CHECK (tipo IN (
-    'webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao',
+    'webhook_resposta', 'audio_transcricao', 'followup_auto', 'agenda_lembrete_reuniao',
     'prospeccao_nichos_sync', 'prospeccao_places_auto',
     'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador'
   ))
@@ -478,7 +478,7 @@ BEGIN
   END IF;
   ALTER TABLE vendas.job_queue ADD CONSTRAINT job_queue_tipo_chk
     CHECK (tipo IN (
-      'webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao',
+      'webhook_resposta', 'audio_transcricao', 'followup_auto', 'agenda_lembrete_reuniao',
       'prospeccao_nichos_sync', 'prospeccao_places_auto',
       'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador'
     )) NOT VALID;
@@ -847,7 +847,7 @@ BEGIN
   END IF;
   ALTER TABLE vendas.job_queue ADD CONSTRAINT job_queue_tipo_chk
     CHECK (tipo IN (
-      'webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao',
+      'webhook_resposta', 'audio_transcricao', 'followup_auto', 'agenda_lembrete_reuniao',
       'prospeccao_nichos_sync', 'prospeccao_places_auto',
       'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador'
     )) NOT VALID;

@@ -34,6 +34,7 @@ import { IconPause, IconPlay, IconThumbDown, IconThumbUp } from '@/components/ui
 import CompositorOperador from '@/components/CompositorOperador'
 import { identidadeConversa } from '@/lib/lead-identidade'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
+import Botao from '@/components/ui/Botao'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import { VARIANTES, O_QUE_MEDE, fatoresDeInteresse } from '@/lib/pontuacao-indicador'
@@ -308,6 +309,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const [apagando, setApagando] = useState(false)
   const [confirmarApagar, setConfirmarApagar] = useState(false)
   const [reenviando, setReenviando] = useState(false)
+  const [reprocessandoAudio, setReprocessandoAudio] = useState(false)
   const [alterandoPausa, setAlterandoPausa] = useState(false)
   const [alterandoModo, setAlterandoModo] = useState(false)
   const [abaModal, setAbaModal] = useState<AbaPainel>('chat')
@@ -431,6 +433,19 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
       } : p)
     } catch { /* erro já exibido pelo feedback */ }
     finally { setReenviando(false) }
+  }
+
+  async function reprocessarAudio() {
+    if (!aberta || !empresaId || reprocessandoAudio) return
+    setReprocessandoAudio(true)
+    try {
+      await fb.runTask(
+        () => apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/audios/reprocessar`, { method: 'POST' }),
+        { sucesso: 'Nova tentativa de transcrição enfileirada.' }
+      )
+      await carregarConversa()
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setReprocessandoAudio(false) }
   }
 
   // ─── Ownership da conversa (Etapa 7) ────────────────────────────────────────────────────
@@ -919,6 +934,8 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                       const isUser = m.role === 'user'
                       const isAssistant = m.role === 'assistant'
                       const isOperator = m.role === 'operator'
+                      const textoMensagem = m.content || m.text || '(vazio)'
+                      const transcricaoFalhou = isUser && textoMensagem.includes('[Áudio recebido — transcrição indisponível.]')
                       const bubble = isUser
                         ? 'bg-white border border-gray-200 mr-auto'
                         : isAssistant
@@ -934,8 +951,24 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                         <div key={i} className={`group flex flex-col ${align}`}>
                           <div className={`max-w-[72%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${bubble}`}>
                             <div className={`text-[10px] uppercase mb-1 ${isAssistant ? 'text-white/70' : 'text-gray-500'}`}>{label}</div>
-                            <div className="whitespace-pre-wrap break-words">{m.content || m.text || '(vazio)'}</div>
+                            <div className="whitespace-pre-wrap break-words">{textoMensagem}</div>
                           </div>
+                          {transcricaoFalhou && (
+                            <div className="mt-1 max-w-[72%]">
+                              {podeGerenciarIa ? (
+                                <Botao
+                                  variante="secundaria"
+                                  tamanho="sm"
+                                  carregando={reprocessandoAudio}
+                                  onClick={reprocessarAudio}
+                                >
+                                  Tentar transcrever novamente
+                                </Botao>
+                              ) : (
+                                <p className="text-xs text-ink-3">Apenas quem administra a IA pode tentar a transcrição novamente.</p>
+                              )}
+                            </div>
+                          )}
                           {isAssistant && (
                             <>
                               <div className={`mt-1 flex max-w-[72%] flex-wrap items-center justify-end gap-1.5 text-[11px] transition ${feedbackAtual?.tipo || formAberto ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}>

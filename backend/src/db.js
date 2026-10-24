@@ -721,7 +721,7 @@ async function initDB() {
       criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT job_queue_status_chk CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
-      CONSTRAINT job_queue_tipo_chk CHECK (tipo IN ('webhook_resposta', 'followup_auto'))
+      CONSTRAINT job_queue_tipo_chk CHECK (tipo IN ('webhook_resposta', 'audio_transcricao', 'followup_auto'))
     )
   `)
   await pool.query(`ALTER TABLE vendas.job_queue ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`)
@@ -743,7 +743,7 @@ async function initDB() {
         ALTER TABLE vendas.job_queue DROP CONSTRAINT job_queue_tipo_chk;
       END IF;
       ALTER TABLE vendas.job_queue ADD CONSTRAINT job_queue_tipo_chk
-        CHECK (tipo IN ('webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao', 'prospeccao_nichos_sync', 'prospeccao_places_auto', 'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador')) NOT VALID;
+        CHECK (tipo IN ('webhook_resposta', 'audio_transcricao', 'followup_auto', 'agenda_lembrete_reuniao', 'prospeccao_nichos_sync', 'prospeccao_places_auto', 'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador')) NOT VALID;
     END $$
   `)
   await pool.query(

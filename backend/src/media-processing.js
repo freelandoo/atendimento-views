@@ -6,6 +6,9 @@ const FormData = require('form-data')
 const {
   OPENAI_KEY,
   MAX_IMAGEM_BYTES_CLAUDE,
+  AUDIO_TRANSCRIPTION_MAX_BYTES,
+  AUDIO_TRANSCRIPTION_TIMEOUT_MS,
+  OPENAI_TRANSCRIPTION_MODEL,
 } = require('./config')
 const { stripCitacaoWhatsappTexto } = require('./string-utils')
 
@@ -26,6 +29,81 @@ function createMediaProcessing({
     return (m ? m[1] : u).replace(/\s/g, '')
   }
 
+  function extrairMensagemEncapsulada(message) {
+    let atual = message && typeof message === 'object' ? message : null
+    const vistos = new Set()
+    while (atual && typeof atual === 'object' && !vistos.has(atual)) {
+      vistos.add(atual)
+      const interno =
+        atual.ephemeralMessage?.message ||
+        atual.viewOnceMessage?.message ||
+        atual.viewOnceMessageV2?.message ||
+        atual.viewOnceMessageV2Extension?.message ||
+        atual.documentWithCaptionMessage?.message
+      if (!interno || typeof interno !== 'object') break
+      atual = interno
+    }
+    return atual || {}
+  }
+
+  function localizarAudioPartMensagem(msg) {
+    const message = extrairMensagemEncapsulada(msg?.message)
+    if (message.audioMessage && typeof message.audioMessage === 'object') {
+      return { ...message.audioMessage, _tipo: 'audio' }
+    }
+    const documento = message.documentMessage
+    if (documento && typeof documento === 'object' && /^audio\//i.test(String(documento.mimetype || ''))) {
+      return { ...documento, _tipo: 'documento_audio' }
+    }
+    return null
+  }
+
+  function mimeAudioNormalizado(mimetype) {
+    const mime = String(mimetype || '').split(';')[0].trim().toLowerCase()
+    if (!mime) return 'audio/ogg'
+    if (mime === 'audio/opus') return 'audio/ogg'
+    return mime
+  }
+
+  function extensaoAudio(mimetype, filename = '') {
+    const extArquivo = String(filename).match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase()
+    if (extArquivo) return extArquivo
+    const mime = mimeAudioNormalizado(mimetype)
+    if (/ogg|opus/.test(mime)) return 'ogg'
+    if (/mpeg|mp3/.test(mime)) return 'mp3'
+    if (/mp4|m4a/.test(mime)) return 'm4a'
+    if (/wav/.test(mime)) return 'wav'
+    if (/webm/.test(mime)) return 'webm'
+    if (/flac/.test(mime)) return 'flac'
+    return 'bin'
+  }
+
+  function bufferDeBase64Valido(valor) {
+    const raw = limparBase64String(valor)
+    if (!raw || raw.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(raw)) {
+      throw new Error('Base64 de áudio inválido retornado pela Evolution')
+    }
+    const buffer = Buffer.from(raw, 'base64')
+    if (!buffer.length) throw new Error('Áudio vazio retornado pela Evolution')
+    if (buffer.length > AUDIO_TRANSCRIPTION_MAX_BYTES) {
+      throw new Error(`Áudio excede o limite de ${Math.floor(AUDIO_TRANSCRIPTION_MAX_BYTES / 1024 / 1024)} MB para transcrição`)
+    }
+    return buffer
+  }
+
+  function erroAudioSeguro(err, etapa) {
+    const status = Number(err?.response?.status) || null
+    const code = String(err?.code || '').slice(0, 80) || null
+    const tipo = status === 401 || status === 403
+      ? 'autenticacao'
+      : status === 413
+        ? 'midia_grande'
+        : status === 408 || status === 429 || status >= 500 || ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET'].includes(code)
+          ? 'transitorio'
+          : 'permanente'
+    return { etapa, status, code, tipo, mensagem: String(err?.message || 'falha desconhecida').slice(0, 300) }
+  }
+
   function mimeImagemParaClaude(mimetype) {
     if (!mimetype || typeof mimetype !== 'string') return 'image/jpeg'
     const base = mimetype.split(';')[0].trim().toLowerCase()
@@ -36,35 +114,33 @@ function createMediaProcessing({
   }
 
   async function transcreverAudioLocal(buffer, filename, mimetype) {
+    if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY é necessária para transcrever áudios')
+    if (!Buffer.isBuffer(buffer) || !buffer.length) throw new Error('Arquivo de áudio vazio')
+    if (buffer.length > AUDIO_TRANSCRIPTION_MAX_BYTES) throw new Error('Arquivo de áudio excede o limite de transcrição')
     const form = new FormData()
     form.append('file', buffer, { filename, contentType: mimetype || 'application/octet-stream' })
-    form.append('model', 'whisper-1')
+    form.append('model', OPENAI_TRANSCRIPTION_MODEL)
     form.append('language', 'pt')
     form.append('prompt', 'Transcrição de áudio em português brasileiro. Contexto: conversa informal sobre vendas, planos, mensalidades, clientes e serviços.')
     const { data } = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
       headers: { ...form.getHeaders(), Authorization: `Bearer ${OPENAI_KEY}` },
-      timeout: 60000,
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
+      timeout: AUDIO_TRANSCRIPTION_TIMEOUT_MS,
+      maxContentLength: AUDIO_TRANSCRIPTION_MAX_BYTES,
+      maxBodyLength: AUDIO_TRANSCRIPTION_MAX_BYTES,
     })
     return typeof data?.text === 'string' ? data.text : ''
   }
 
-  function localizarAudioPartMensagem(msg) {
-    return msg?.message?.audioMessage || null
-  }
-
-  async function baixarETranscreverAudioMensagem(msg, audioPart, instanceName = '') {
-    if (!audioPart) throw new Error('Mensagem sem audioMessage')
+  async function baixarETranscreverAudioMensagem(msg, audioPart, instanceName = '', opts = {}) {
+    if (!audioPart) throw new Error('Mensagem sem áudio compatível')
+    if (typeof opts.onStage === 'function') await opts.onStage('downloading')
     const b64 = await evolutionObterBase64Midia(msg, { instanceName })
-    const rawB64 = limparBase64String(b64)
-    if (!rawB64) throw new Error('Audio sem base64 retornado pela Evolution')
-    const buf = Buffer.from(rawB64, 'base64')
-    const mimeFull = (audioPart.mimetype || 'audio/ogg').split(';')[0].trim()
-    const ext =
-      /mp4|m4a/i.test(mimeFull) ? 'm4a' : /mpeg|mp3/i.test(mimeFull) ? 'mp3' : 'ogg'
+    const buf = bufferDeBase64Valido(b64)
+    const mimeFull = mimeAudioNormalizado(audioPart.mimetype)
+    const ext = extensaoAudio(mimeFull, audioPart.fileName)
+    if (typeof opts.onStage === 'function') await opts.onStage('transcribing')
     const transcricao = await transcreverAudioLocal(buf, `audio.${ext}`, mimeFull)
-    if (!transcricao || !transcricao.trim()) throw new Error('Whisper retornou transcricao vazia')
+    if (!transcricao || !transcricao.trim()) throw new Error('OpenAI retornou transcrição vazia')
     return { transcricao: transcricao.trim(), mimetype: mimeFull, bytes: buf.length }
   }
 
@@ -104,18 +180,24 @@ function createMediaProcessing({
     return { texto: texto.trim(), visao: { media_type: mime, data: rawB64 } }
   }
 
-  async function processarAudioWebhook(msg, audioPart, textoBase, remetenteCliente = true, instanceName = '') {
+  async function processarAudioWebhook(msg, audioPart, textoBase, remetenteCliente = true, instanceName = '', opts = {}) {
     const numeroAudio = canonicoRemoteJidParaConversa(msg?.key) || msg?.key?.remoteJid || null
     const messageKeyAudio = construirChaveIdempotenciaWebhookMensagem(msg)
-    const fallbackAudio =
-      remetenteCliente
-        ? '[Audio recebido - nao foi possivel baixar/transcrever. Peca ao cliente para repetir ou enviar em texto.]'
-        : '[Audio recebido - nao foi possivel baixar/transcrever. Peca ao operador para repetir ou enviar em texto.]'
+    if (opts.deferir === true && numeroAudio) {
+      const registro = await registrarAudioProcessamento(numeroAudio, messageKeyAudio, msg, audioPart, {
+        status: 'pending',
+        mimetype: mimeAudioNormalizado(audioPart.mimetype),
+        empresaId: opts.empresaId || null,
+        evolutionInstance: instanceName || null,
+      })
+      const marcador = `[Audio recebido — transcrição em processamento #${registro.id}]`
+      return { texto: [textoBase, marcador].filter(Boolean).join('\n\n'), visao: null, audio: { id: registro.id, marcador } }
+    }
     try {
       const rAudio = await baixarETranscreverAudioMensagem(msg, audioPart, instanceName)
       if (numeroAudio) {
         await registrarAudioProcessamento(numeroAudio, messageKeyAudio, msg, audioPart, {
-          status: 'processed',
+          status: 'completed',
           transcricao: rAudio.transcricao,
           mimetype: rAudio.mimetype,
           incrementAttempt: true,
@@ -124,17 +206,17 @@ function createMediaProcessing({
       const linhasAudio = []
       if (textoBase) linhasAudio.push(textoBase)
       linhasAudio.push(`[Audio transcrito] ${rAudio.transcricao}`)
-      return { texto: linhasAudio.filter(Boolean).join('\n\n'), visao: null }
+      return { texto: linhasAudio.filter(Boolean).join('\n\n'), visao: null, audio: null }
     } catch (eAudio) {
-      log.error('Audio/Whisper:', eAudio.response?.data || eAudio.message)
+      log.error({ audio: erroAudioSeguro(eAudio, 'sincrono') }, 'Falha ao transcrever áudio')
       if (numeroAudio) {
         await registrarAudioProcessamento(numeroAudio, messageKeyAudio, msg, audioPart, {
-          status: 'pending',
+          status: 'retrying',
           erro: eAudio.message || String(eAudio),
           incrementAttempt: true,
         }).catch((e2) => log.warn('Audio pendente nao registrado:', e2.message))
       }
-      return { texto: textoBase || fallbackAudio, visao: null }
+      return { texto: textoBase || '[Áudio recebido — transcrição indisponível.]', visao: null, audio: null }
     }
   }
 
@@ -157,7 +239,7 @@ function createMediaProcessing({
   async function extrairTextoEMidiaDoWebhook(msg, opts = {}) {
     const remetenteCliente = opts.remetenteCliente !== false
     const instanceName = String(opts.instanceName || '').trim()
-    const m = msg?.message
+    const m = extrairMensagemEncapsulada(msg?.message)
     if (!m) {
       return { texto: null, visao: null }
     }
@@ -178,8 +260,9 @@ function createMediaProcessing({
     if (m.documentMessage?.mimetype?.startsWith('image/')) {
       return processarImagemWebhook(msg, m.documentMessage, textoBase, false, remetenteCliente, instanceName)
     }
-    if (m.audioMessage) {
-      return processarAudioWebhook(msg, m.audioMessage, textoBase, remetenteCliente, instanceName)
+    const audioPart = localizarAudioPartMensagem(msg)
+    if (audioPart) {
+      return processarAudioWebhook(msg, audioPart, textoBase, remetenteCliente, instanceName, opts)
     }
 
     if (textoBase) return { texto: textoBase, visao: null }
@@ -188,6 +271,11 @@ function createMediaProcessing({
 
   return {
     limparBase64String,
+    extrairMensagemEncapsulada,
+    mimeAudioNormalizado,
+    extensaoAudio,
+    bufferDeBase64Valido,
+    erroAudioSeguro,
     mimeImagemParaClaude,
     transcreverAudioLocal,
     localizarAudioPartMensagem,
