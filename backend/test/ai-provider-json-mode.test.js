@@ -253,3 +253,48 @@ test('OpenAI: schema recusado (400) degrada para json_object (fallback gracioso)
     delete require.cache[require.resolve('../src/ai-provider')]
   }
 })
+
+test('OpenAI: 429 por crédito esgotado não é tratado como recusa de schema', async () => {
+  process.env.OPENAI_KEY = 'sk-test-fake'
+  delete process.env.AI_STRUCTURED_OUTPUTS
+  const bodies = []
+  const logs = []
+  const originalLoad = Module._load
+  Module._load = function (request) {
+    if (request === 'axios') {
+      return {
+        post: async (url, body) => {
+          bodies.push(body)
+          const e = new Error('Request failed with status code 429')
+          e.response = {
+            status: 429,
+            data: { error: { code: 'insufficient_quota', type: 'insufficient_quota', message: 'You exceeded your current quota.' } },
+          }
+          throw e
+        },
+      }
+    }
+    return originalLoad.apply(this, arguments)
+  }
+  try {
+    delete require.cache[require.resolve('../src/ai-provider')]
+    const { generateAIResponse } = require('../src/ai-provider')
+    await assert.rejects(
+      () => generateAIResponse(
+        { systemPrompt: 'x', userPrompt: 'y', task: 'agent_turn', provider: 'openai', model: 'gpt-4o', responseFormatJson: true, responseSchema: SCHEMA_FAKE, disableFallback: true },
+        poolOpenAI,
+        { warn: (...args) => logs.push(args), info: () => {}, error: () => {} }
+      ),
+      /429/
+    )
+    assert.equal(bodies.length, 1, '429 não pode gerar uma segunda chamada em json_object')
+    const diagnostico = logs.find(([ctx]) => ctx && ctx.event === 'provider_call_failed')?.[0]
+    assert.deepEqual(
+      { category: diagnostico?.category, retryable: diagnostico?.retryable, operator_action: diagnostico?.operator_action },
+      { category: 'ai_credits_exhausted', retryable: false, operator_action: 'add_credits_or_switch_provider' }
+    )
+  } finally {
+    Module._load = originalLoad
+    delete require.cache[require.resolve('../src/ai-provider')]
+  }
+})

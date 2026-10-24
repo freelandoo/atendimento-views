@@ -4,7 +4,7 @@
 // da empresa (contexto da instância) + instruções extras da empresa. Read-only; não
 // persiste nada. NUNCA lança: em qualquer falha retorna '' e o caller cai no template.
 // Desenho aprovado na spec docs/superpowers/specs/2026-07-03-saudacao-analise-e-estagios-design.md
-const { generateAIResponse } = require('../ai-provider')
+const { generateAIResponse, classificarErroProvedor } = require('../ai-provider')
 const { getContextoComEstagios, montarConhecimentoDoContexto, normalizarEstagios } = require('./contexto-estagios')
 const {
   montarEstrategiaAbordagem,
@@ -98,7 +98,15 @@ async function gerarAbordagemAnalise({ pool, log, empresaId, contextoId, jsonApr
         const texto = String(contrato?.mensagem || '').trim()
         if (texto && texto.length <= MAX_CHARS) return { texto, orientacao }
       } catch (e) {
-        if (log && log.warn) log.warn({ err: e.message, tentativa }, '[saudacao-analise] tentativa falhou')
+        if (log && log.warn) {
+          log.warn({
+            component: 'saudacao-analise',
+            event: 'first_message_generation_failed',
+            attempt: tentativa + 1,
+            max_attempts: RETRIES + 1,
+            ...classificarErroProvedor(e),
+          }, '[saudacao-analise] geração da primeira mensagem falhou')
+        }
       }
     }
     return vazio

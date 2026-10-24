@@ -81,6 +81,8 @@ function registrarFalhaReconciliacao(err, now = new Date()) {
       error_code: codigo,
       retryable: false,
       impact: 'message_confirmation_unavailable',
+      blocks_new_sends: false,
+      operator_action: 'verify_evolution_messageupdate_persistence',
       worker_id: REPLICA_ID,
       consecutive_failures: falhas,
       first_failure_at: saudeWorker.reconciliacao.primeira_falha_em,

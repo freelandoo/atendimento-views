@@ -52,6 +52,36 @@ function computeCost(model, inputTokens, outputTokens) {
   return (Number(inputTokens || 0) * p.input) + (Number(outputTokens || 0) * p.output)
 }
 
+// Resume falhas de provedores sem registrar payload, prompt, chave ou conteúdo da conversa.
+// O formato estável facilita filtrar incidentes no Railway e decidir se um retry faz sentido.
+function classificarErroProvedor(err, provider = 'desconhecido') {
+  const status = Number(err?.response?.status) || null
+  const erroApi = err?.response?.data?.error || {}
+  const codigoProvedor = String(erroApi.code || err?.code || '').trim().toLowerCase() || null
+  const tipoProvedor = String(erroApi.type || '').trim().toLowerCase() || null
+  const mensagem = String(erroApi.message || err?.message || '').toLowerCase()
+  const contexto = `${codigoProvedor || ''} ${tipoProvedor || ''} ${mensagem}`
+  const quotaEsgotada = /insufficient[_ -]?quota|credit.?balance|billing.?hard.?limit|exceeded your current quota/.test(contexto)
+  const credencialInvalida = status === 401 || /invalid.?api.?key|incorrect.?api.?key|authentication/.test(contexto)
+
+  if (quotaEsgotada) {
+    return { provider, http_status: status, provider_error_code: codigoProvedor, provider_error_type: tipoProvedor, category: 'ai_credits_exhausted', retryable: false, operator_action: 'add_credits_or_switch_provider' }
+  }
+  if (status === 429) {
+    return { provider, http_status: status, provider_error_code: codigoProvedor, provider_error_type: tipoProvedor, category: 'ai_rate_limited', retryable: true, operator_action: 'wait_and_retry_or_raise_rate_limit' }
+  }
+  if (credencialInvalida) {
+    return { provider, http_status: status, provider_error_code: codigoProvedor, provider_error_type: tipoProvedor, category: 'ai_credentials_invalid', retryable: false, operator_action: 'verify_provider_credential' }
+  }
+  if (status != null && status >= 500) {
+    return { provider, http_status: status, provider_error_code: codigoProvedor, provider_error_type: tipoProvedor, category: 'ai_provider_unavailable', retryable: true, operator_action: 'retry_or_use_fallback_provider' }
+  }
+  if (/timeout|econnreset|enotfound|eai_again|network/.test(contexto)) {
+    return { provider, http_status: status, provider_error_code: codigoProvedor, provider_error_type: tipoProvedor, category: 'ai_network_failure', retryable: true, operator_action: 'retry_or_check_provider_connectivity' }
+  }
+  return { provider, http_status: status, provider_error_code: codigoProvedor, provider_error_type: tipoProvedor, category: 'ai_request_failed', retryable: false, operator_action: 'inspect_provider_error_code' }
+}
+
 let _cache = null
 let _cacheAt = 0
 const CACHE_TTL = 30_000
@@ -332,9 +362,18 @@ async function _callOpenAI({ model, systemPrompt, userPrompt, messages, temperat
     resp = await axios.post(OPENAI_URL, montarBody(usarSchema), { headers, timeout: timeoutMs })
   } catch (err) {
     const st = err.response && err.response.status
-    if (usarSchema && st >= 400 && st < 500) {
+    // Só uma incompatibilidade do schema justifica repetir a mesma chamada em json_object.
+    // 401/429 não são falha de schema; repetir escondia a causa e consumia uma tentativa.
+    if (usarSchema && (st === 400 || st === 422)) {
       if (log && typeof log.warn === 'function') {
-        log.warn(`[ai-provider] structured outputs recusado (${st}) → fallback json_object`)
+        log.warn({
+          component: 'ai-provider',
+          event: 'structured_output_rejected',
+          provider: 'openai',
+          model,
+          http_status: st,
+          fallback_mode: 'json_object',
+        }, '[ai-provider] structured outputs recusado; repetindo em json_object')
       }
       resp = await axios.post(OPENAI_URL, montarBody(false), { headers, timeout: timeoutMs })
     } else {
@@ -487,6 +526,16 @@ async function generateAIResponse(input, pool, log) {
     await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio, usage: result.usage, ...logRef })
     return { ...result, fallback_used: false }
   } catch (primaryErr) {
+    const diagnosticoPrimario = classificarErroProvedor(primaryErr, provider)
+    if (log && typeof log.warn === 'function') {
+      log.warn({
+        component: 'ai-provider',
+        event: 'provider_call_failed',
+        model,
+        fallback_configured: Boolean(settings.fallback_enabled && settings.fallback_provider),
+        ...diagnosticoPrimario,
+      }, '[ai-provider] chamada ao provedor falhou')
+    }
     if (disableFallback || !settings.fallback_enabled || !settings.fallback_provider) {
       await _logAI(pool, { provider, model, task, success: false, errorMessage: primaryErr.message, latency: Date.now() - inicio, ...logRef })
       throw primaryErr
@@ -503,6 +552,16 @@ async function generateAIResponse(input, pool, log) {
       await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio, fallback_used: true, usage: result.usage, ...logRef })
       return { ...result, fallback_used: true, primary_error: primaryErr.message }
     } catch (fallbackErr) {
+      const diagnosticoFallback = classificarErroProvedor(fallbackErr, fbProvider)
+      if (log && typeof log.error === 'function') {
+        log.error({
+          component: 'ai-provider',
+          event: 'fallback_call_failed',
+          primary: diagnosticoPrimario,
+          fallback_model: fbModel,
+          ...diagnosticoFallback,
+        }, '[ai-provider] fallback também falhou')
+      }
       const errMsg = `primary: ${primaryErr.message}; fallback: ${fallbackErr.message}`
       await _logAI(pool, { provider: fbProvider, model: fbModel, task, success: false, errorMessage: errMsg, latency: Date.now() - inicio, fallback_used: true, ...logRef })
       throw fallbackErr
@@ -633,6 +692,7 @@ module.exports = {
   _systemPromptToText,
   priceFor,
   computeCost,
+  classificarErroProvedor,
   generateContextPlan,
   summarizeConversation,
   generateReport,
