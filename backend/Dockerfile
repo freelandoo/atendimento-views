@@ -19,7 +19,9 @@
 # `pg` SEMPRE esteve em `dependencies` (hoje ^8.20.0). Aquela linha nao acrescentava nada e
 # ainda instalava a versao mais NOVA por cima da que o lockfile fixa — ou seja, o unico efeito
 # real era furar o lockfile justamente no driver do banco.
-FROM node:20-alpine
+# Versão EXATA do Node (segurança): a linha 20 saiu de suporte em 2026-04-30.
+# 22.23.4 = release de segurança de 2026-10-20. Subir à mão.
+FROM node:22.23.4-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json ./

@@ -298,7 +298,7 @@ function iniciarServidor() {
       iniciarWorkers({ agent, pool })
       const PORT = process.env.PORT || 3000
       app.listen(PORT, '0.0.0.0', () => {
-        logger.info(`PJ Codeworks Agent rodando na porta ${PORT}`)
+        logger.info(`PJ Codeworks Agent rodando na porta ${PORT} (node ${process.version})`)
       })
     })
     .catch((err) => {
